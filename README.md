@@ -91,6 +91,7 @@ pytest
 transpt1/
 ├── transport_coord/       # Configuration du projet Django (settings, urls, wsgi/asgi)
 ├── core/                   # Utilisateurs, rôles, compagnies (multi-tenant), auth JWT
+├── reseau/                 # Gares, lignes, véhicules
 ├── manage.py
 ├── requirements.txt
 ├── .env.example
@@ -102,13 +103,25 @@ transpt1/
 
 ```bash
 python manage.py seed_demo_users
+python manage.py seed_demo_reseau  # nécessite seed_demo_users au préalable
 ```
 
 Crée deux compagnies et quelques utilisateurs (un par rôle clé) avec le mot de passe
-`Demo!2024`, utiles pour tester manuellement l'API (voir `core/management/commands/seed_demo_users.py`).
+`Demo!2024`, puis des gares/lignes/véhicules de démonstration pour chacune — utiles
+pour tester manuellement l'API (voir `core/management/commands/seed_demo_users.py`
+et `reseau/management/commands/seed_demo_reseau.py`).
 
 ## Endpoints d'authentification
 
 - `POST /api/auth/login/` — obtenir un couple de tokens JWT (`access`/`refresh`)
 - `POST /api/auth/refresh/` — renouveler un token `access`
 - `GET /api/auth/me/` — infos de l'utilisateur connecté (rôle, compagnie)
+
+## Endpoints réseau
+
+CRUD complet, isolé par compagnie (`IsSameCompany`) :
+
+- `/api/gares/` — un chef de gare (`role=chef_gare`) ne peut modifier/supprimer que
+  la gare dont il est `chef`, pas les autres gares de sa compagnie
+- `/api/lignes/` — `gare_depart`/`gare_arrivee` doivent appartenir à la même compagnie
+- `/api/vehicules/`

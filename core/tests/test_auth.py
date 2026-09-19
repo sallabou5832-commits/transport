@@ -1,6 +1,6 @@
 import pytest
 
-from core.tests.conftest import DEMO_PASSWORD
+from conftest import DEMO_PASSWORD
 
 
 @pytest.mark.django_db
