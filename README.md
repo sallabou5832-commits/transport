@@ -90,6 +90,7 @@ pytest
 ```
 transpt1/
 ├── transport_coord/       # Configuration du projet Django (settings, urls, wsgi/asgi)
+├── core/                   # Utilisateurs, rôles, compagnies (multi-tenant), auth JWT
 ├── manage.py
 ├── requirements.txt
 ├── .env.example
@@ -97,4 +98,17 @@ transpt1/
 └── README.md
 ```
 
-Aucune application métier n'est encore créée à ce stade (étape 0 : socle technique uniquement).
+## Utilisateurs de démonstration
+
+```bash
+python manage.py seed_demo_users
+```
+
+Crée deux compagnies et quelques utilisateurs (un par rôle clé) avec le mot de passe
+`Demo!2024`, utiles pour tester manuellement l'API (voir `core/management/commands/seed_demo_users.py`).
+
+## Endpoints d'authentification
+
+- `POST /api/auth/login/` — obtenir un couple de tokens JWT (`access`/`refresh`)
+- `POST /api/auth/refresh/` — renouveler un token `access`
+- `GET /api/auth/me/` — infos de l'utilisateur connecté (rôle, compagnie)
