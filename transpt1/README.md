@@ -109,6 +109,23 @@ est envoyée au passager par SMS et par WhatsApp. Chaque tentative est tracée d
   jamais dans le code.
 - Un échec d'envoi n'annule jamais la vente : il est tracé avec le statut `échec`.
 
+## Formation par poste
+
+Chaque poste dispose d'un parcours de formation « jeu » **entièrement simulé** : les actions
+(vendre un ticket, faire la checklist avant-départ, traiter une demande de pièce...) ne créent
+jamais de vraies données. Voir `PERMISSIONS.md` §7 pour les garanties d'isolation.
+
+```bash
+python manage.py seed_formation          # crée les parcours de base (guichetier, chauffeur principal, magasinier)
+python manage.py seed_formation --force  # réécrit leur contenu (écrase les modifications faites dans l'admin)
+```
+
+- `GET  /api/formation/mon-parcours/` : le parcours du rôle de l'utilisateur, avec sa progression
+- `POST /api/formation/mon-parcours/demarrer/` : démarre (ou reprend) le parcours
+- `POST /api/formation/mon-parcours/etapes/{id}/terminer/` : termine l'étape courante (dans l'ordre)
+
+Le contenu des parcours (étapes, consignes, données fictives) s'édite dans l'admin Django.
+
 ## Structure du projet
 
 ```

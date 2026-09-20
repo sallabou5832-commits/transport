@@ -29,4 +29,5 @@ urlpatterns = [
     path('api/', include('maintenance.urls')),
     path('api/', include('supports.urls')),
     path('api/', include('dashboard.urls')),
+    path('api/', include('formation.urls')),
 ]

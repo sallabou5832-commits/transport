@@ -96,6 +96,24 @@ décrémente le stock et est refusée si le stock est insuffisant.
 | `/dashboard/direction/` | `pdg`, `secretaire_general`, `qhse` uniquement |
 | `/dashboard/qhse/` | `qhse` uniquement |
 
+## 7. Formation (`formation`) — ParcoursFormation, EtapeFormation, ProgressionFormation
+
+| Endpoint | Accès |
+|---|---|
+| `/formation/mon-parcours/` (GET) | Tout utilisateur authentifié, uniquement le parcours **de son propre rôle** (404 si son rôle n'a pas de parcours) |
+| `/formation/mon-parcours/demarrer/` (POST) | Idem — démarre (ou reprend) sa propre progression |
+| `/formation/mon-parcours/etapes/{id}/terminer/` (POST) | Idem — uniquement l'étape courante de sa propre progression |
+
+La création et la modification du contenu des parcours se font via l'administration Django
+(pas d'endpoint d'écriture). Une progression est strictement individuelle : personne ne voit ni ne
+modifie celle d'un autre utilisateur.
+
+Règle d'isolation (absolue) : les actions de formation sont **simulées**. Elles n'écrivent que dans les
+tables `formation_*`, ne référencent aucun modèle métier et n'en importent aucun ; les données fictives
+sont portées par les étapes elles-mêmes. Aucun ticket, départ, checklist, incident, pièce ou notification
+client n'est créé ou modifié par la formation, et rien de la formation n'apparaît dans les autres modules.
+Ces garanties sont vérifiées par `formation/tests/test_isolation.py`.
+
 ---
 
 ## Synthèse par rôle

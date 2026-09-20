@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'supports',
     'dashboard',
     'notifications',
+    'formation',
 ]
 
 AUTH_USER_MODEL = 'core.User'
