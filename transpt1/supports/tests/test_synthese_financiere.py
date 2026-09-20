@@ -95,6 +95,71 @@ class TestSyntheseFinanciere:
         assert response.status_code == 200
         assert response.data["gares"] == []
 
+    def test_total_de_la_periode(self, api_client, directeur_financier_a, contexte_ventes):
+        api_client.force_authenticate(user=directeur_financier_a)
+        today = timezone.localdate().isoformat()
+
+        total = api_client.get(
+            f"/api/synthese-financiere/?date_debut={today}&date_fin={today}"
+        ).data["total"]
+
+        assert total["nombre_tickets"] == 3
+        assert float(total["montant_total"]) == 17000.00
+
+    def test_repartition_par_mode_de_paiement(self, api_client, directeur_financier_a, contexte_ventes):
+        api_client.force_authenticate(user=directeur_financier_a)
+        today = timezone.localdate().isoformat()
+
+        modes = {
+            m["mode"]: m
+            for m in api_client.get(
+                f"/api/synthese-financiere/?date_debut={today}&date_fin={today}"
+            ).data["par_mode_paiement"]
+        }
+
+        assert (modes["especes"]["nombre_tickets"], float(modes["especes"]["montant_total"])) == (2, 12000.0)
+        assert (modes["mobile_money"]["nombre_tickets"], float(modes["mobile_money"]["montant_total"])) == (1, 5000.0)
+
+    def test_un_mode_sans_vente_apparait_avec_des_zeros(self, api_client, directeur_financier_a, contexte_ventes):
+        api_client.force_authenticate(user=directeur_financier_a)
+        hier = (timezone.localdate() - datetime.timedelta(days=1)).isoformat()
+
+        donnees = api_client.get(f"/api/synthese-financiere/?date_debut={hier}&date_fin={hier}").data
+
+        assert {m["mode"] for m in donnees["par_mode_paiement"]} == {"especes", "mobile_money"}
+        assert all(m["nombre_tickets"] == 0 and float(m["montant_total"]) == 0.0 for m in donnees["par_mode_paiement"])
+        assert donnees["total"]["nombre_tickets"] == 0 and float(donnees["total"]["montant_total"]) == 0.0
+        assert donnees["par_jour"] == []
+
+    def test_evolution_jour_par_jour(self, api_client, directeur_financier_a, contexte_ventes):
+        hier = timezone.now() - datetime.timedelta(days=1)
+        Ticket.objects.filter(passager_nom="P3").update(date_vente=hier)  # 7000 FCFA passent à hier
+        api_client.force_authenticate(user=directeur_financier_a)
+        date_hier = timezone.localdate(hier).isoformat()
+        today = timezone.localdate().isoformat()
+
+        par_jour = api_client.get(
+            f"/api/synthese-financiere/?date_debut={date_hier}&date_fin={today}"
+        ).json()["par_jour"]
+
+        assert [(j["date"], j["nombre_tickets"], float(j["montant_total"])) for j in par_jour] == [
+            (date_hier, 1, 7000.0),
+            (today, 2, 10000.0),
+        ]
+
+    def test_les_agregats_ne_melangent_pas_les_compagnies(
+        self, api_client, user_factory, company_b, contexte_ventes
+    ):
+        directeur_b = user_factory("directeur_financier_b", Role.DIRECTEUR_FINANCIER, company=company_b)
+        api_client.force_authenticate(user=directeur_b)
+        today = timezone.localdate().isoformat()
+
+        donnees = api_client.get(f"/api/synthese-financiere/?date_debut={today}&date_fin={today}").data
+
+        assert donnees["total"]["nombre_tickets"] == 0
+        assert donnees["gares"] == [] and donnees["par_jour"] == []
+        assert all(m["nombre_tickets"] == 0 for m in donnees["par_mode_paiement"])
+
     def test_role_non_finance_ne_peut_pas_consulter_la_synthese(
         self, api_client, drh_a, contexte_ventes
     ):

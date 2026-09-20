@@ -125,3 +125,9 @@ def utilisateurs_a(user_factory, company_a, monde_a):
     monde_a["gare_depart"].chef = users["chef_gare"]
     monde_a["gare_depart"].save()
     return users
+
+
+@pytest.fixture
+def tous_les_roles(utilisateurs_a, superadmin_user):
+    """Un utilisateur par rôle (les 17 rôles métier de la compagnie A, plus le superadmin)."""
+    return {**utilisateurs_a, "superadmin": superadmin_user}

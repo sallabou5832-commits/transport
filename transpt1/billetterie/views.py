@@ -1,3 +1,4 @@
+import datetime
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -13,20 +14,27 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from billetterie import reservations
-from billetterie.models import Depart, ModePaiement, ReservationHorsLigne, Ticket
+from billetterie.models import Depart, DepartStatut, ModePaiement, ReservationHorsLigne, Ticket
 from billetterie.permissions import (
+    IsDispatchManagerAlways,
     IsDispatchManagerOrReadOnly,
     IsGuichetierOrAboveAlways,
     IsGuichetierOrAboveWrite,
 )
-from billetterie.serializers import DepartSerializer, TicketSerializer
+from billetterie.serializers import CHAUFFEUR_ROLES, DepartSerializer, TicketSerializer
 from core.mixins import CompanyScopedQuerysetMixin
-from core.models import Role
+from core.models import Role, User
 from core.permissions import IsSameCompany
+from core.serializers import nom_complet
 from notifications.services import notifier_vente_ticket
+from reseau.models import Vehicule, VehiculeStatut
 
 
 CLE_IDEMPOTENCE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+
+# Le modèle ne connaît pas la durée d'un trajet : un véhicule ou un chauffeur est considéré
+# comme pris s'il a un autre départ non terminé à moins de 8 heures de celui-ci.
+FENETRE_OCCUPATION = datetime.timedelta(hours=8)
 
 
 class ConflitIdempotence(APIException):
@@ -71,6 +79,57 @@ class DepartViewSet(BilletterieViewSet):
                 "places_restantes": depart.places_restantes,
                 "places_reservees": depart.places_reservees,
                 "places_disponibles": depart.places_disponibles,
+            }
+        )
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="remplacants-possibles",
+        permission_classes=[IsAuthenticated, IsSameCompany, IsDispatchManagerAlways],
+    )
+    def remplacants_possibles(self, request, pk=None):
+        """Véhicules et chauffeurs libres pouvant remplacer ceux de ce départ.
+
+        Un véhicule proposé est disponible, assez grand pour les places déjà vendues ou
+        réservées, et sans autre départ proche ; un chauffeur proposé n'a pas d'autre départ
+        proche. Réservé aux rôles de planification (c'est un annuaire des chauffeurs libres).
+        """
+        depart = self.get_object()
+        proches = (
+            Depart.objects.filter(
+                company_id=depart.company_id,
+                date_heure__gte=depart.date_heure - FENETRE_OCCUPATION,
+                date_heure__lte=depart.date_heure + FENETRE_OCCUPATION,
+            )
+            .exclude(pk=depart.pk)
+            .exclude(statut=DepartStatut.TERMINE)
+        )
+        vehicules = (
+            Vehicule.objects.filter(
+                company_id=depart.company_id,
+                statut=VehiculeStatut.DISPONIBLE,
+                capacite__gte=depart.places_vendues + depart.places_reservees,
+            )
+            .exclude(pk=depart.vehicule_id)
+            .exclude(pk__in=proches.values("vehicule_id"))
+        )
+        chauffeurs = (
+            User.objects.filter(company_id=depart.company_id, role__in=CHAUFFEUR_ROLES)
+            .exclude(pk=depart.chauffeur_id)
+            .exclude(pk__in=proches.values("chauffeur_id"))
+            .order_by("username")
+        )
+        return Response(
+            {
+                "depart": depart.id,
+                "vehicules": [
+                    {"id": v.id, "immatriculation": v.immatriculation, "capacite": v.capacite}
+                    for v in vehicules
+                ],
+                "chauffeurs": [
+                    {"id": c.id, "nom": nom_complet(c), "role": c.role} for c in chauffeurs
+                ],
             }
         )
 

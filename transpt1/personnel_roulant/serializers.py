@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from core.serializers import CompanySerializer
+from core.serializers import CompanySerializer, nom_complet
 from personnel_roulant.models import ChecklistDepart, FeuilleDeRoute, Incident
 from personnel_roulant.permissions import CHAUFFEUR_ROLES
 
@@ -22,6 +22,7 @@ def _check_chauffeur(chauffeur, request):
 
 class FeuilleDeRouteSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
+    chauffeur_nom = serializers.SerializerMethodField()
 
     class Meta:
         model = FeuilleDeRoute
@@ -29,6 +30,7 @@ class FeuilleDeRouteSerializer(serializers.ModelSerializer):
             "id",
             "depart",
             "chauffeur",
+            "chauffeur_nom",
             "company",
             "heure_depart_prevue",
             "heure_depart_reelle",
@@ -36,6 +38,9 @@ class FeuilleDeRouteSerializer(serializers.ModelSerializer):
             "heure_arrivee_reelle",
         ]
         read_only_fields = ["company", "heure_depart_reelle", "heure_arrivee_reelle"]
+
+    def get_chauffeur_nom(self, obj):
+        return nom_complet(obj.chauffeur)
 
     def validate_chauffeur(self, chauffeur):
         return _check_chauffeur(chauffeur, self.context["request"])
@@ -72,6 +77,7 @@ class ChecklistDepartSerializer(serializers.ModelSerializer):
 
 class IncidentSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
+    chauffeur_nom = serializers.SerializerMethodField()
 
     class Meta:
         model = Incident
@@ -80,6 +86,7 @@ class IncidentSerializer(serializers.ModelSerializer):
             "feuille_de_route",
             "vehicule",
             "chauffeur",
+            "chauffeur_nom",
             "company",
             "type_incident",
             "description",
@@ -88,6 +95,9 @@ class IncidentSerializer(serializers.ModelSerializer):
             "statut",
         ]
         read_only_fields = ["company"]
+
+    def get_chauffeur_nom(self, obj):
+        return nom_complet(obj.chauffeur)
 
     def validate_chauffeur(self, chauffeur):
         return _check_chauffeur(chauffeur, self.context["request"])

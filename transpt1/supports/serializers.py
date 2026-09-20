@@ -1,16 +1,32 @@
 from rest_framework import serializers
 
-from core.serializers import CompanySerializer
+from core.serializers import CompanySerializer, nom_complet
 from supports.models import Assurance, DossierAgent, Sinistre
 
 
 class DossierAgentSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
+    # Identité de l'agent : mêmes destinataires que le dossier (le DRH, ou l'agent lui-même).
+    agent_nom = serializers.SerializerMethodField()
+    agent_role = serializers.CharField(source="agent.role", read_only=True)
 
     class Meta:
         model = DossierAgent
-        fields = ["id", "agent", "company", "date_embauche", "poste", "statut", "notes_rh"]
+        fields = [
+            "id",
+            "agent",
+            "agent_nom",
+            "agent_role",
+            "company",
+            "date_embauche",
+            "poste",
+            "statut",
+            "notes_rh",
+        ]
         read_only_fields = ["company"]
+
+    def get_agent_nom(self, obj):
+        return nom_complet(obj.agent)
 
     def validate_agent(self, agent):
         request = self.context["request"]

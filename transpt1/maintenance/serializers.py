@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from core.serializers import CompanySerializer
+from core.serializers import CompanySerializer, nom_complet
 from maintenance.models import OrdreReparation, Piece, SortiePiece
 
 
@@ -16,6 +16,7 @@ class PieceSerializer(serializers.ModelSerializer):
 
 class OrdreReparationSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
+    mecanicien_nom = serializers.SerializerMethodField()
 
     class Meta:
         model = OrdreReparation
@@ -25,12 +26,16 @@ class OrdreReparationSerializer(serializers.ModelSerializer):
             "description",
             "statut",
             "mecanicien",
+            "mecanicien_nom",
             "company",
             "date_creation",
             "date_cloture",
             "temps_passe_minutes",
         ]
         read_only_fields = ["company", "date_creation", "date_cloture"]
+
+    def get_mecanicien_nom(self, obj):
+        return nom_complet(obj.mecanicien)
 
     def validate_vehicule(self, vehicule):
         request = self.context["request"]

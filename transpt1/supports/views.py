@@ -1,7 +1,9 @@
 import datetime
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.db.models import Count, F, Sum
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import viewsets
@@ -11,12 +13,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from billetterie.models import Ticket
+from billetterie.models import ModePaiement, Ticket
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
 from core.permissions import IsSameCompany
+from core.serializers import nom_complet
 from supports.models import Assurance, DossierAgent, Sinistre
 from supports.permissions import (
+    IsDrh,
     IsDrhOrOwnerReadOnly,
     IsFinance,
     IsResponsableJuridiqueOuDirecteurTechnique,
@@ -43,6 +47,26 @@ class DossierAgentViewSet(SupportsViewSet):
         if user.role in (Role.DRH, Role.SUPERADMIN):
             return queryset
         return queryset.filter(agent_id=user.id)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="agents-sans-dossier",
+        permission_classes=[IsAuthenticated, IsDrh],
+    )
+    def agents_sans_dossier(self, request):
+        """Agents de la compagnie qui n'ont pas encore de dossier (pour en ouvrir un)."""
+        agents = (
+            get_user_model()
+            .objects.filter(company_id=request.user.company_id, dossier_agent__isnull=True)
+            .order_by("username")
+        )
+        return Response(
+            [
+                {"id": agent.id, "username": agent.username, "nom": nom_complet(agent), "role": agent.role}
+                for agent in agents
+            ]
+        )
 
 
 class AssuranceViewSet(SupportsViewSet):
@@ -100,4 +124,49 @@ class SyntheseFinanciereView(APIView):
             for row in rows
         ]
 
-        return Response({"date_debut": date_debut, "date_fin": date_fin, "gares": gares})
+        # Même périmètre (compagnie, période) que `gares`, vu sous deux autres angles : le mode
+        # d'encaissement et l'évolution jour par jour. Calculés ici plutôt que côté client parce
+        # que la liste des tickets est lisible par tous les rôles alors que ces montants ne le
+        # sont pas (finance uniquement).
+        total = tickets.aggregate(nombre=Count("id"), montant=Sum("prix"))
+
+        par_mode = {
+            row["mode_paiement"]: row
+            for row in tickets.values("mode_paiement").annotate(
+                nombre=Count("id"), montant=Sum("prix")
+            ).order_by()
+        }
+        par_mode_paiement = [
+            {
+                "mode": mode,
+                "nombre_tickets": par_mode.get(mode, {}).get("nombre", 0),
+                "montant_total": par_mode.get(mode, {}).get("montant") or Decimal("0"),
+            }
+            for mode in ModePaiement.values
+        ]
+
+        par_jour = [
+            {
+                "date": row["jour"],
+                "nombre_tickets": row["nombre"],
+                "montant_total": row["montant"] or Decimal("0"),
+            }
+            for row in tickets.annotate(jour=TruncDate("date_vente"))
+            .values("jour")
+            .annotate(nombre=Count("id"), montant=Sum("prix"))
+            .order_by("jour")
+        ]
+
+        return Response(
+            {
+                "date_debut": date_debut,
+                "date_fin": date_fin,
+                "total": {
+                    "nombre_tickets": total["nombre"] or 0,
+                    "montant_total": total["montant"] or Decimal("0"),
+                },
+                "gares": gares,
+                "par_mode_paiement": par_mode_paiement,
+                "par_jour": par_jour,
+            }
+        )

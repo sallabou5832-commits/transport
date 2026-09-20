@@ -51,6 +51,24 @@ fiche véhicule elle-même (immatriculation, capacité, statut initial).
 | **Places restantes** (`/departs/{id}/places-restantes/`) | Tous les rôles de la compagnie | — (lecture seule) |
 | **Réservation de places hors ligne** (`/tickets/reserver-hors-ligne/`, POST/DELETE) | — | `guichetier` et les rôles qui lui sont supérieurs, pour leurs propres réservations uniquement |
 | **Clôture de caisse** (`/tickets/cloture-caisse/`) | `guichetier` (uniquement la sienne) et les rôles supérieurs (peuvent consulter celle de n'importe quel guichetier de la compagnie) | — (lecture seule) |
+| **Remplaçants possibles** (`/departs/{id}/remplacants-possibles/`) | `chef_ligne`, `chef_gare`, `directeur_exploitation`, `secretaire_general`, `pdg` (et `superadmin`) uniquement : c'est un annuaire des chauffeurs libres | — (lecture seule) |
+
+Le **nom du chauffeur** (`chauffeur_nom`) est exposé, en lecture seule, sur les départs, feuilles de route
+et incidents (lisibles par tous les rôles de la compagnie) : l'API n'a pas d'annuaire d'agents et les
+tableaux de bord doivent afficher des noms. De même `mecanicien_nom` sur les ordres de réparation.
+
+Règles de la **réaffectation** d'un départ (`PATCH /departs/{id}/` avec `vehicule` ou `chauffeur`) :
+
+- seul un départ `planifie` dont la feuille de route n'a pas démarré peut changer de véhicule ou de chauffeur
+  (400 sinon : démarrer une feuille de route ne change pas `Depart.statut`, c'est la feuille qui dit si le car
+  est parti) ;
+- un changement de chauffeur suit sur la feuille de route pas encore démarrée (c'est elle que le chauffeur
+  consulte) ; une feuille déjà transférée à un chauffeur relais n'est pas écrasée ;
+- le nouveau véhicule doit contenir toutes les places déjà vendues ou réservées hors ligne (400 sinon) ;
+- `remplacants-possibles` ne propose que des véhicules `disponible` assez grands et sans autre départ non
+  terminé à moins de 8 h (le modèle ne connaît pas la durée d'un trajet), et des chauffeurs sans autre départ
+  non terminé à moins de 8 h. Ces suggestions restent indicatives : la validation ci-dessus s'applique
+  toujours au `PATCH`.
 
 Règles métier de la vente (`POST /tickets/`) :
 
@@ -96,10 +114,17 @@ décrémente le stock et est refusée si le stock est insuffisant.
 | Ressource | Lecture | Écriture |
 |---|---|---|
 | **DossierAgent** | `drh` (tous les dossiers de la compagnie), chaque agent (uniquement le sien) | `drh` uniquement |
+| **Agents sans dossier** (`/dossiers-agents/agents-sans-dossier/`) | `drh` uniquement (données RH : pas de transparence par défaut, `superadmin` inclus) | — (lecture seule) |
 | **Assurance** | `responsable_juridique`, `directeur_technique` uniquement | `responsable_juridique`, `directeur_technique` |
 | **Assurances à échéance proche** (`/assurances/echeance-proche/`) | `responsable_juridique`, `directeur_technique` uniquement | — (lecture seule) |
 | **Sinistre** | `responsable_juridique`, `directeur_technique` uniquement | `responsable_juridique`, `directeur_technique` |
 | **Synthèse financière** (`/synthese-financiere/`) | `directeur_financier`, `pdg`, `secretaire_general` uniquement | — (lecture seule) |
+
+Un dossier expose `agent_nom` et `agent_role` en lecture seule : mêmes destinataires que le dossier lui-même.
+La synthèse financière renvoie, pour la période demandée (`date_debut`, `date_fin`) : `gares` (par gare de
+départ), `total`, `par_mode_paiement` (espèces / mobile money, un mode sans vente y figure avec des zéros) et
+`par_jour`. Ces agrégats sont calculés côté serveur : la liste des tickets étant lisible par tous, la calculer
+côté client aurait exposé au front des montants réservés à la finance.
 
 ## 6. Tableau de bord (`dashboard`)
 
@@ -107,6 +132,21 @@ décrémente le stock et est refusée si le stock est insuffisant.
 |---|---|
 | `/dashboard/direction/` | `pdg`, `secretaire_general`, `qhse` uniquement |
 | `/dashboard/qhse/` | `qhse` uniquement |
+| `/dashboard/exploitation/` | `directeur_exploitation`, `pdg`, `secretaire_general` uniquement (pas le `superadmin` : les chiffres sont ceux d'une compagnie) |
+| `/dashboard/plateforme/` | `superadmin` uniquement : une ligne par compagnie (effectifs, flotte, activité du jour) |
+
+`/dashboard/exploitation/` calcule la ponctualité du jour et des 7 derniers jours à partir des feuilles de
+route : un départ est « à l'heure » s'il a lieu au plus tard 10 minutes après l'heure prévue ; une feuille non
+démarrée dont l'heure prévue + 10 min est dépassée compte comme « en retard » (le départ n'a pas eu lieu, il ne
+faut pas attendre qu'il ait lieu pour le signaler). Couleur d'une gare ou d'une ligne : vert à partir de 90 %,
+orange à partir de 70 %, rouge en dessous, neutre s'il n'y a aucun départ mesurable.
+
+## Contrat entre tableaux de bord web et API
+
+`role_coverage_tests/test_matrice_conformite.py` teste **les 18 rôles sur chaque endpoint restreint** contre les
+tableaux ci-dessus, la lecture générale ouverte à tous, le cloisonnement RH et l'isolation entre compagnies.
+`role_coverage_tests/test_contrat_frontend.py` vérifie que chaque route appelée par une page web est autorisée
+aux rôles auxquels cette page est proposée.
 
 ## 7. Formation (`formation`) — ParcoursFormation, EtapeFormation, ProgressionFormation
 

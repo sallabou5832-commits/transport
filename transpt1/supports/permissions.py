@@ -6,6 +6,14 @@ ROLES_JURIDIQUE_TECHNIQUE = {Role.RESPONSABLE_JURIDIQUE, Role.DIRECTEUR_TECHNIQU
 ROLES_FINANCE = {Role.DIRECTEUR_FINANCIER, Role.PDG, Role.SECRETAIRE_GENERAL, Role.SUPERADMIN}
 
 
+class IsDrh(BasePermission):
+    """DRH uniquement, lecture comprise (données RH : pas de transparence par défaut)."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.role == Role.DRH)
+
+
 class IsDrhOrOwnerReadOnly(BasePermission):
     """DRH has full access. Any other user may only read their own dossier."""
 

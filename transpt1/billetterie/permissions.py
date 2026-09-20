@@ -51,6 +51,16 @@ DISPATCH_ROLES = {
 }
 
 
+class IsDispatchManagerAlways(BasePermission):
+    """Rôles de planification, lecture comprise : réservé à ce qui n'est pas de la transparence
+    par défaut (ici, l'annuaire des chauffeurs libres proposés pour un remplacement).
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.role in DISPATCH_ROLES)
+
+
 class IsDispatchManagerOrReadOnly(BasePermission):
     """Reads are open to any authenticated same-company user; scheduling a
     depart (create/update/delete) is reserved to dispatch/management roles.

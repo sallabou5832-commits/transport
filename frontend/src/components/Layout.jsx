@@ -1,26 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext.jsx'
-
-const ROLE_LABELS = {
-  pdg: 'PDG',
-  secretaire_general: 'Secrétaire général',
-  qhse: 'QHSE',
-  directeur_exploitation: 'Directeur exploitation',
-  chef_gare: 'Chef de gare',
-  chef_ligne: 'Chef de ligne',
-  guichetier: 'Guichetier',
-  bagagiste: 'Bagagiste',
-  chauffeur_principal: 'Chauffeur principal',
-  chauffeur_relais: 'Chauffeur relais',
-  controleur_ligne: 'Contrôleur de ligne',
-  directeur_technique: 'Directeur technique',
-  magasinier: 'Magasinier',
-  chef_atelier: "Chef d'atelier",
-  drh: 'DRH',
-  directeur_financier: 'Directeur financier',
-  responsable_juridique: 'Responsable juridique',
-  superadmin: 'Super administrateur',
-}
+import { ROLE_LABELS } from '../auth/roles.js'
 
 export default function Layout({ title, children }) {
   const { user, logout } = useAuth()

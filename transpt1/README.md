@@ -146,15 +146,20 @@ transpt1/
 python manage.py seed_demo_users
 python manage.py seed_demo_reseau        # nécessite seed_demo_users au préalable
 python manage.py seed_demo_operations    # nécessite seed_demo_users + seed_demo_reseau
+python manage.py seed_demo_tableaux      # données réalistes pour les tableaux de bord ; nécessite les trois précédentes
 ```
 
-Crée deux compagnies et des utilisateurs (un par rôle couvert par un tableau de bord
-du frontend) avec le mot de passe `Demo!2024`, des gares/lignes/véhicules de
-démonstration, puis un départ, un ticket, une feuille de route, des pièces et un
-ordre de réparation — utiles pour tester manuellement l'API et le frontend (voir
+Crée deux compagnies et des utilisateurs (un par rôle : les 17 rôles du cahier des
+charges et un superadmin) avec le mot de passe `Demo!2024`, des gares/lignes/véhicules
+de démonstration, puis un départ, un ticket, une feuille de route, des pièces et un
+ordre de réparation, et enfin des données réalistes pour les tableaux de bord (départs
+du jour à l'heure ou en retard, six jours d'historique, incidents, assurances,
+sinistres, dossiers RH) — utiles pour tester manuellement l'API et le frontend (voir
 `core/management/commands/seed_demo_users.py`,
-`reseau/management/commands/seed_demo_reseau.py` et
-`billetterie/management/commands/seed_demo_operations.py`).
+`reseau/management/commands/seed_demo_reseau.py`,
+`billetterie/management/commands/seed_demo_operations.py` et
+`dashboard/management/commands/seed_demo_tableaux.py`). `seed_demo_tableaux` est sans
+effet s'il a déjà été lancé.
 
 ## Frontend
 

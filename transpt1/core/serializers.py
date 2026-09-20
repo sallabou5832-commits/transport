@@ -3,6 +3,13 @@ from rest_framework import serializers
 from core.models import Company, User
 
 
+def nom_complet(user):
+    """Nom à afficher pour un agent : « Prénom Nom », à défaut son identifiant."""
+    if user is None:
+        return None
+    return user.get_full_name() or user.username
+
+
 class CompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
