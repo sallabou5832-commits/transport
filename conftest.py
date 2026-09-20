@@ -8,6 +8,13 @@ from core.models import Company, Role
 DEMO_PASSWORD = "Demo!2024"
 
 
+@pytest.fixture(autouse=True)
+def fast_password_hasher(settings):
+    # PBKDF2 (défaut de Django) coûte plusieurs secondes par utilisateur créé ;
+    # un hasher rapide suffit pour les tests et ne change rien en production.
+    settings.PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
+
 @pytest.fixture
 def api_client():
     return APIClient()
