@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'core',
     'reseau',
+    'billetterie',
 ]
 
 AUTH_USER_MODEL = 'core.User'
