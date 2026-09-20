@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 from datetime import timedelta
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
 from decouple import Csv, config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -181,6 +182,11 @@ SIMPLE_JWT = {
 # https://github.com/adamchainz/django-cors-headers
 
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
+
+# Un client web (ex. l'application mobile compilée pour le navigateur) envoie
+# Idempotency-Key ; sans cette autorisation, la requête préalable CORS le refuserait.
+CORS_ALLOW_HEADERS = (*default_headers, 'idempotency-key')
+CORS_EXPOSE_HEADERS = ['Idempotent-Replayed']
 
 
 # Notifications client (SMS / WhatsApp)

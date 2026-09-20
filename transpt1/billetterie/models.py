@@ -55,9 +55,19 @@ class Ticket(models.Model):
         "core.User", on_delete=models.PROTECT, related_name="tickets_vendus"
     )
     date_vente = models.DateTimeField(auto_now_add=True)
+    # Clé fournie par le client (en-tête Idempotency-Key) : rejouer la même vente,
+    # par exemple après une coupure réseau, ne crée pas un second ticket.
+    cle_idempotence = models.CharField(max_length=64, null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ["-date_vente"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["vendu_par", "cle_idempotence"],
+                condition=models.Q(cle_idempotence__isnull=False),
+                name="ticket_cle_idempotence_unique_par_vendeur",
+            )
+        ]
 
     def __str__(self):
         return f"Ticket {self.passager_nom} - {self.depart}"

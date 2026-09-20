@@ -1,11 +1,12 @@
-from decimal import Decimal
+import re
+from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Sum
 from django.utils.dateparse import parse_date
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -20,6 +21,15 @@ from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
 from core.permissions import IsSameCompany
 from notifications.services import notifier_vente_ticket
+
+
+CLE_IDEMPOTENCE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+
+
+class ConflitIdempotence(APIException):
+    status_code = 409
+    default_detail = "Cette clé d'idempotence a déjà servi pour une vente différente."
+    default_code = "conflit_idempotence"
 
 
 class BilletterieViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
@@ -53,6 +63,65 @@ class TicketViewSet(BilletterieViewSet):
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, IsSameCompany, IsGuichetierOrAboveWrite]
 
+    @staticmethod
+    def _cle_idempotence(request):
+        """La clé d'idempotence de la requête (en-tête Idempotency-Key), ou None."""
+        cle = request.headers.get("Idempotency-Key")
+        if cle is None:
+            return None
+        if not CLE_IDEMPOTENCE_RE.match(cle):
+            raise ValidationError(
+                {"Idempotency-Key": "1 à 64 caractères : lettres, chiffres, tirets et underscores."}
+            )
+        return cle
+
+    def _ticket_idempotent(self, user, cle):
+        return Ticket.objects.filter(vendu_par=user, cle_idempotence=cle).first()
+
+    @staticmethod
+    def _meme_demande(ticket, data):
+        try:
+            return (
+                int(data.get("depart")) == ticket.depart_id
+                and str(data.get("passager_nom", "")).strip() == ticket.passager_nom
+                and str(data.get("passager_telephone", "")).strip() == ticket.passager_telephone
+                and Decimal(str(data.get("prix"))) == ticket.prix
+                and data.get("mode_paiement") == ticket.mode_paiement
+            )
+        except (TypeError, ValueError, InvalidOperation):
+            return False
+
+    def create(self, request, *args, **kwargs):
+        """Vente d'un ticket, idempotente si le client fournit un en-tête Idempotency-Key.
+
+        Rejouer la même vente (réponse perdue, nouvelle tentative de synchronisation
+        du mobile) renvoie le ticket déjà créé au lieu d'en créer un second, sans
+        toucher au compteur de places ni renvoyer de notification. Le rejeu est
+        traité AVANT toute validation : il doit réussir même si le départ est
+        devenu complet ou terminé depuis la première vente.
+        """
+        cle = self._cle_idempotence(request)
+        if cle is None:
+            return super().create(request, *args, **kwargs)
+
+        existant = self._ticket_idempotent(request.user, cle)
+        if existant is None:
+            try:
+                return super().create(request, *args, **kwargs)
+            except IntegrityError:
+                # Deux requêtes simultanées avec la même clé : l'autre a gagné.
+                existant = self._ticket_idempotent(request.user, cle)
+                if existant is None:
+                    raise
+
+        if not self._meme_demande(existant, request.data):
+            raise ConflitIdempotence()
+        return Response(
+            self.get_serializer(existant).data,
+            status=200,
+            headers={"Idempotent-Replayed": "true"},
+        )
+
     def perform_create(self, serializer):
         user = self.request.user
         if user.company_id is None:
@@ -69,7 +138,11 @@ class TicketViewSet(BilletterieViewSet):
                 raise ValidationError(
                     {"depart": "Plus aucune place disponible sur ce départ."}
                 )
-            serializer.save(vendu_par=user, company=user.company)
+            serializer.save(
+                vendu_par=user,
+                company=user.company,
+                cle_idempotence=self._cle_idempotence(self.request),
+            )
             depart.places_vendues += 1
             depart.save(update_fields=["places_vendues"])
 
