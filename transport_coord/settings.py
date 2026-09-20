@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'billetterie',
     'personnel_roulant',
     'maintenance',
+    'supports',
 ]
 
 AUTH_USER_MODEL = 'core.User'
