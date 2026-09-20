@@ -103,13 +103,22 @@ transpt1/
 
 ```bash
 python manage.py seed_demo_users
-python manage.py seed_demo_reseau  # nécessite seed_demo_users au préalable
+python manage.py seed_demo_reseau        # nécessite seed_demo_users au préalable
+python manage.py seed_demo_operations    # nécessite seed_demo_users + seed_demo_reseau
 ```
 
-Crée deux compagnies et quelques utilisateurs (un par rôle clé) avec le mot de passe
-`Demo!2024`, puis des gares/lignes/véhicules de démonstration pour chacune — utiles
-pour tester manuellement l'API (voir `core/management/commands/seed_demo_users.py`
-et `reseau/management/commands/seed_demo_reseau.py`).
+Crée deux compagnies et des utilisateurs (un par rôle couvert par un tableau de bord
+du frontend) avec le mot de passe `Demo!2024`, des gares/lignes/véhicules de
+démonstration, puis un départ, un ticket, une feuille de route, des pièces et un
+ordre de réparation — utiles pour tester manuellement l'API et le frontend (voir
+`core/management/commands/seed_demo_users.py`,
+`reseau/management/commands/seed_demo_reseau.py` et
+`billetterie/management/commands/seed_demo_operations.py`).
+
+## Frontend
+
+Une interface web (React + Vite) consommant cette API se trouve dans `../frontend`.
+Voir `frontend/README.md` pour l'installation et les comptes de démonstration.
 
 ## Endpoints d'authentification
 

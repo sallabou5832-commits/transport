@@ -23,9 +23,14 @@ COMPANIES = {
 
 DEMO_USERS = [
     {"username": "pdg_stc", "role": Role.PDG, "company": "stc_voyages"},
+    {"username": "secretaire_general_stc", "role": Role.SECRETAIRE_GENERAL, "company": "stc_voyages"},
+    {"username": "qhse_stc", "role": Role.QHSE, "company": "stc_voyages"},
     {"username": "chef_gare_stc", "role": Role.CHEF_GARE, "company": "stc_voyages"},
     {"username": "guichetier_stc", "role": Role.GUICHETIER, "company": "stc_voyages"},
     {"username": "chauffeur_stc", "role": Role.CHAUFFEUR_PRINCIPAL, "company": "stc_voyages"},
+    {"username": "chauffeur_relais_stc", "role": Role.CHAUFFEUR_RELAIS, "company": "stc_voyages"},
+    {"username": "magasinier_stc", "role": Role.MAGASINIER, "company": "stc_voyages"},
+    {"username": "chef_atelier_stc", "role": Role.CHEF_ATELIER, "company": "stc_voyages"},
     {"username": "pdg_savane", "role": Role.PDG, "company": "express_savane"},
     {"username": "chef_gare_savane", "role": Role.CHEF_GARE, "company": "express_savane"},
     {"username": "superadmin_demo", "role": Role.SUPERADMIN, "company": None},
