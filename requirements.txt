@@ -13,6 +13,7 @@ PyJWT==2.14.0
 pytest==9.1.1
 pytest-django==4.14.0
 python-decouple==3.8
+requests==2.34.2
 sqlparse==0.6.0
 twilio==9.11.1
 tzdata==2026.4

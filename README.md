@@ -85,6 +85,22 @@ Les tests utilisent `pytest-django` :
 pytest
 ```
 
+## Notifications SMS
+
+Le client final n'a pas accès au logiciel : à la vente d'un ticket, un SMS de
+confirmation est envoyé au passager. Chaque tentative est tracée dans
+`NotificationLog` (destinataire, contenu, fournisseur, statut, référence, erreur, date).
+
+- **Mode simulation (défaut)** : `NOTIFICATIONS_SIMULATION_MODE=True` n'appelle aucun
+  fournisseur, écrit seulement dans les logs et dans `NotificationLog` (statut `simulé`).
+  Ne le passer à `False` qu'en production, avec les identifiants du fournisseur.
+- **Fournisseurs** : Orange SMS API (Côte d'Ivoire) et Twilio (international).
+  `NOTIFICATIONS_SMS_PROVIDER=auto` envoie les numéros `+225` par Orange (s'il est
+  configuré) et tous les autres par Twilio ; `orange` ou `twilio` force un fournisseur.
+- **Identifiants** : uniquement par variables d'environnement (voir `.env.example`),
+  jamais dans le code.
+- Un échec d'envoi n'annule jamais la vente : il est tracé avec le statut `échec`.
+
 ## Structure du projet
 
 ```

@@ -22,6 +22,7 @@ class NotificationLog(models.Model):
     )
     destinataire = models.CharField(max_length=30)
     canal = models.CharField(max_length=20, choices=CanalNotification.choices, default=CanalNotification.SMS)
+    fournisseur = models.CharField(max_length=20, blank=True)
     contenu = models.TextField()
     statut = models.CharField(max_length=20, choices=StatutNotification.choices)
     reference_fournisseur = models.CharField(max_length=100, blank=True)

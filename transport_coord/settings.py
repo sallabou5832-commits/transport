@@ -191,6 +191,15 @@ CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
 
 NOTIFICATIONS_SIMULATION_MODE = config('NOTIFICATIONS_SIMULATION_MODE', default=True, cast=bool)
 
+# "auto" : numéros +225 via Orange (s'il est configuré), le reste via Twilio.
+# "orange" ou "twilio" force un fournisseur pour tous les numéros.
+NOTIFICATIONS_SMS_PROVIDER = config('NOTIFICATIONS_SMS_PROVIDER', default='auto')
+
 TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
 TWILIO_FROM_NUMBER = config('TWILIO_FROM_NUMBER', default='')
+
+ORANGE_SMS_CLIENT_ID = config('ORANGE_SMS_CLIENT_ID', default='')
+ORANGE_SMS_CLIENT_SECRET = config('ORANGE_SMS_CLIENT_SECRET', default='')
+ORANGE_SMS_SENDER = config('ORANGE_SMS_SENDER', default='')
+ORANGE_SMS_SENDER_NAME = config('ORANGE_SMS_SENDER_NAME', default='')
