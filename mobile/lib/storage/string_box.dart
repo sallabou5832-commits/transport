@@ -18,15 +18,18 @@ abstract interface class StringBox {
 }
 
 class HiveStringBox implements StringBox {
-  HiveStringBox(this._box);
+  HiveStringBox(this._box, {this.hiddenKey});
 
   final Box<String> _box;
 
-  @override
-  Iterable<String> get values => _box.values;
+  /// Entrée technique (témoin d'intégrité) que la file d'attente et le cache ne voient pas.
+  final Object? hiddenKey;
 
   @override
-  Iterable<Object> get keys => _box.keys.cast<Object>();
+  Iterable<String> get values => keys.map((key) => _box.get(key)!);
+
+  @override
+  Iterable<Object> get keys => _box.keys.cast<Object>().where((key) => key != hiddenKey);
 
   @override
   String? get(Object key) => _box.get(key);

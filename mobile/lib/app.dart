@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'auth/auth_controller.dart';
+import 'data/quota_service.dart';
 import 'services.dart';
 import 'sync/sync_service.dart';
 import 'ui/home_screen.dart';
@@ -48,6 +49,7 @@ class _TransportAppState extends State<TransportApp> {
         Provider<AppServices>.value(value: _services),
         ChangeNotifierProvider<AuthController>.value(value: _services.auth),
         ChangeNotifierProvider<SyncService>.value(value: _services.sync),
+        ChangeNotifierProvider<QuotaService>.value(value: _services.quota),
       ],
       child: MaterialApp(
         title: 'Transport Coord',

@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../auth/auth_controller.dart';
 import '../auth/roles.dart';
+import '../data/quota_service.dart';
+import '../services.dart';
 import '../sync/sync_service.dart';
 import 'chauffeur_home.dart';
 import 'generic_home.dart';
@@ -15,6 +17,7 @@ class HomeScreen extends StatelessWidget {
 
   Future<void> _logout(BuildContext context) async {
     final auth = context.read<AuthController>();
+    final quota = context.read<QuotaService>();
     final pending = context.read<SyncService>().pendingCount;
     if (pending > 0) {
       final confirmed = await showDialog<bool>(
@@ -22,7 +25,7 @@ class HomeScreen extends StatelessWidget {
         builder: (context) => AlertDialog(
           title: const Text('Se déconnecter ?'),
           content: Text(
-            '$pending action(s) n\'ont pas encore été envoyées. Elles restent enregistrées '
+            "$pending action(s) n'ont pas encore été envoyées. Elles restent enregistrées "
             'sur ce téléphone et seront envoyées à votre prochaine connexion.',
           ),
           actions: [
@@ -39,6 +42,10 @@ class HomeScreen extends StatelessWidget {
       );
       if (confirmed != true) return;
     }
+    // Rend les places réservées aux autres guichets (sauf s'il reste des ventes à envoyer,
+    // qui en ont besoin). Doit se faire avant la déconnexion, tant que le jeton existe.
+    // Au mieux et sans faire attendre : si le serveur est lent, les places expireront d'elles-mêmes.
+    await quota.release().timeout(const Duration(seconds: 4), onTimeout: () {});
     await auth.logout();
   }
 
@@ -70,10 +77,47 @@ class HomeScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
+          if (context.read<AppServices>().store.wasReset) const _LocalDataResetNotice(),
           const SyncStatusBar(),
           Expanded(child: body),
         ],
       ),
+    );
+  }
+}
+
+/// Prévient que des données locales illisibles ont été effacées (clé de chiffrement perdue,
+/// fichier corrompu) : des ventes hors ligne en attente ont pu être perdues.
+class _LocalDataResetNotice extends StatefulWidget {
+  const _LocalDataResetNotice();
+
+  @override
+  State<_LocalDataResetNotice> createState() => _LocalDataResetNoticeState();
+}
+
+class _LocalDataResetNoticeState extends State<_LocalDataResetNotice> {
+  bool _dismissed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return MaterialBanner(
+      key: const Key('donnees-locales-effacees'),
+      backgroundColor: scheme.errorContainer,
+      leading: Icon(Icons.warning_amber_rounded, color: scheme.onErrorContainer),
+      content: Text(
+        'Les données enregistrées sur ce téléphone étaient illisibles et ont été effacées. '
+        "Si des ventes hors ligne étaient en attente, signalez-le à votre chef de gare "
+        'avant de continuer.',
+        style: TextStyle(color: scheme.onErrorContainer),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => setState(() => _dismissed = true),
+          child: const Text('Compris'),
+        ),
+      ],
     );
   }
 }

@@ -5,6 +5,7 @@ import '../api/api_exception.dart';
 import '../auth/auth_controller.dart';
 import '../data/depart_repository.dart';
 import '../data/loaded.dart';
+import '../data/quota_service.dart';
 import '../services.dart';
 import '../sync/action_handlers.dart';
 import '../sync/sync_service.dart';
@@ -83,7 +84,22 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
       _error = null;
     });
 
-    final result = await context.read<SyncService>().submit(
+    final sync = context.read<SyncService>();
+    final quota = context.read<QuotaService>();
+    final departId = _departId!;
+    // Sans place garantie hors ligne sur ce départ, la vente exige le réseau : sinon le
+    // serveur pourrait la refuser à la synchronisation alors que le voyageur a déjà payé.
+    if (quota.remainingFor(departId) <= 0 && !await sync.canReachServer()) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = "Pas de connexion, et aucune place n'est garantie hors ligne pour ce départ. "
+            'Reconnectez-vous au réseau pour vendre.';
+      });
+      return;
+    }
+
+    final result = await sync.submit(
       type: ActionTypes.venteTicket,
       payload: {
         'depart': _departId,
@@ -93,6 +109,8 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
         'mode_paiement': _mode,
       },
     );
+    // La vente (envoyée ou en attente) utilise une des places réservées à ce guichetier.
+    if (result.status != SubmitStatus.rejected) await quota.consume(departId);
     if (!mounted) return;
 
     setState(() => _busy = false);
@@ -131,6 +149,7 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final quota = context.watch<QuotaService>();
     return Scaffold(
       appBar: AppBar(title: const Text('Vendre un ticket')),
       body: _loading
@@ -186,6 +205,11 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
                         onChanged: _busy ? null : (value) => setState(() => _departId = value),
                         validator: (v) => v == null ? 'Choisissez un départ.' : null,
                       ),
+                      if (_departId != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: _PlacesGaranties(restantes: quota.remainingFor(_departId!)),
+                        ),
                       const SizedBox(height: 16),
                       TextFormField(
                         key: const Key('passager-nom'),
@@ -271,6 +295,32 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
                     ],
                   ),
                 ),
+    );
+  }
+}
+
+/// Combien de ventes ce guichetier peut encore faire SANS réseau sur le départ choisi.
+class _PlacesGaranties extends StatelessWidget {
+  const _PlacesGaranties({required this.restantes});
+
+  final int restantes;
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = restantes > 0;
+    return Row(
+      children: [
+        Icon(ok ? Icons.verified_outlined : Icons.wifi_off, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            ok
+                ? 'Places garanties hors ligne : $restantes'
+                : 'Aucune place garantie hors ligne : la vente exige le réseau.',
+            key: const Key('places-garanties'),
+          ),
+        ),
+      ],
     );
   }
 }

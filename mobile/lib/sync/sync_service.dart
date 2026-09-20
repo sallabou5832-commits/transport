@@ -88,11 +88,17 @@ class SyncService extends ChangeNotifier {
     required this._handlers,
     required this._currentUserId,
     this.maxAttempts = 5,
+    this._probe,
   });
 
   final Outbox _outbox;
   final Map<String, ActionHandler> _handlers;
   final int? Function() _currentUserId;
+  final Future<void> Function()? _probe;
+
+  /// Tâche à lancer à la fin de chaque synchronisation réussie (ex. mettre à jour les
+  /// places réservées). Sans effet sur la synchronisation elle-même : ses erreurs sont ignorées.
+  Future<void> Function(SyncResult result)? afterSync;
 
   /// Après ce nombre d'échecs serveur consécutifs, l'action est marquée « refusée ».
   final int maxAttempts;
@@ -136,6 +142,22 @@ class SyncService extends ChangeNotifier {
   Future<void> discard(String id) async {
     await _outbox.remove(id);
     refreshCounts();
+  }
+
+  /// Le serveur répond-il ? (Une réponse d'erreur du serveur compte comme « oui ».)
+  Future<bool> canReachServer() async {
+    final probe = _probe;
+    if (probe == null) return _online;
+    try {
+      await probe();
+    } on NetworkException {
+      setOnline(false);
+      return false;
+    } on Object {
+      // erreur applicative (401...) : le serveur est bien joignable
+    }
+    setOnline(true);
+    return true;
   }
 
   /// Lance une synchronisation ; si une est déjà en cours, s'y rattache.
@@ -197,6 +219,13 @@ class SyncService extends ChangeNotifier {
     final userId = _currentUserId();
     if (userId == null) return const SyncResult();
 
+    if (_outbox.pendingFor(userId).isEmpty) {
+      // Rien à envoyer : pas d'état « synchronisation en cours », mais les tâches
+      // périodiques (réservation de places) restent dues.
+      _runAfterSync(const SyncResult());
+      return const SyncResult();
+    }
+
     _syncing = true;
     notifyListeners();
     var sent = 0;
@@ -242,7 +271,18 @@ class SyncService extends ChangeNotifier {
       _online = stop != SyncStop.offline;
       refreshCounts();
     }
-    return SyncResult(sent: sent, rejected: rejected, stop: stop);
+    final result = SyncResult(sent: sent, rejected: rejected, stop: stop);
+    if (stop == SyncStop.none) _runAfterSync(result);
+    return result;
+  }
+
+  /// Lancée sans attendre : elle ne doit jamais retarder l'écran qui a déclenché l'envoi.
+  void _runAfterSync(SyncResult result) {
+    final task = afterSync;
+    if (task == null) return;
+    unawaited(task(result).catchError((Object e) {
+      debugPrint('afterSync : $e');
+    }));
   }
 
   Future<_Attempt> _attempt(PendingAction action) async {

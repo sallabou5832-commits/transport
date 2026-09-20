@@ -53,10 +53,10 @@ Map<String, dynamic> userJson({int id = 7, String role = 'guichetier'}) => {
 /// Application complète branchée sur un faux serveur, un stockage en mémoire et une
 /// connectivité pilotée à la main.
 class Harness {
-  Harness() {
+  Harness({LocalStore? store}) {
     api = ApiClient(baseUrl: 'http://test/api', tokens: tokens, httpClient: server.client);
     services = AppServices.assemble(
-      store: LocalStore.memory(),
+      store: store ?? LocalStore.memory(),
       api: api,
       tokens: tokens,
       connectivity: connectivity,
@@ -75,8 +75,19 @@ class Harness {
     server.onJson('GET', '/auth/me/', userJson(id: id, role: role));
   }
 
-  /// Un départ vendable et sa ligne (pour l'écran de vente).
-  void stubDeparts() {
+  /// Réponse du serveur à « mettre de côté des places pour la vente hors ligne » :
+  /// [places] sur le départ 5 (aucune réservation si 0).
+  void stubReservation({int places = 2}) {
+    final expire = DateTime.now().add(const Duration(hours: 6)).toUtc().toIso8601String();
+    server.onJson('POST', '/tickets/reserver-hors-ligne/', [
+      if (places > 0) {'depart': 5, 'places': places, 'expire_le': expire},
+    ]);
+    server.on('DELETE', '/tickets/reserver-hors-ligne/', (_) => http.Response('', 204));
+  }
+
+  /// Un départ vendable et sa ligne (pour l'écran de vente), avec 2 places réservées.
+  void stubDeparts({int placesReservees = 2}) {
+    stubReservation(places: placesReservees);
     final demain = DateTime.now().add(const Duration(days: 1)).toUtc().toIso8601String();
     server.onJson('GET', '/departs/', [
       {'id': 5, 'ligne': 3, 'statut': 'planifie', 'date_heure': demain, 'places_restantes': 12},

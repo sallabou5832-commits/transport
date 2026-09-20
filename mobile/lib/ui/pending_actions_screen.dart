@@ -43,8 +43,10 @@ class PendingActionsScreen extends StatelessWidget {
                         subtitle: Text(
                           rejected
                               ? 'Refusée : ${action.lastError ?? 'erreur inconnue'}'
+                                  '${action.type == ActionTypes.venteTicket ? '\nLe voyageur a peut-être déjà payé : remboursez-le ou proposez-lui un autre départ.' : ''}'
                               : 'Faite le ${formatDateHeure(action.createdAt)}, en attente d\'envoi',
                         ),
+                        isThreeLine: rejected,
                         trailing: rejected
                             ? IconButton(
                                 tooltip: 'Supprimer',

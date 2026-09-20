@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../auth/token_storage.dart';
@@ -14,7 +15,14 @@ class ApiClient {
     required this.tokens,
     http.Client? httpClient,
     this.timeout = const Duration(seconds: 15),
-  }) : _http = httpClient ?? http.Client();
+    bool? requireHttps,
+  }) : _http = httpClient ?? http.Client() {
+    // Dernier garde-fou : même si la configuration est contournée, une version release
+    // n'enverra jamais le jeton ni les données des voyageurs en clair.
+    if ((requireHttps ?? kReleaseMode) && !baseUrl.toLowerCase().startsWith('https://')) {
+      throw StateError('ApiClient : HTTPS obligatoire (reçu « $baseUrl »).');
+    }
+  }
 
   final String baseUrl;
   final TokenStorage tokens;
@@ -27,6 +35,8 @@ class ApiClient {
   Future<Object?>? _refreshing;
 
   Future<Object?> get(String path) => _request('GET', path);
+
+  Future<Object?> delete(String path) => _request('DELETE', path);
 
   Future<Object?> post(
     String path, {
@@ -85,6 +95,7 @@ class ApiClient {
             headers: allHeaders,
             body: body == null ? null : jsonEncode(body),
           ),
+        'DELETE' => _http.delete(uri, headers: allHeaders),
         _ => throw ArgumentError('Méthode HTTP non prise en charge : $method'),
       };
       return await call.timeout(timeout);

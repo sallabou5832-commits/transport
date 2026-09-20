@@ -14,6 +14,7 @@ import 'package:transport_mobile/auth/auth_controller.dart';
 import 'package:transport_mobile/auth/token_storage.dart';
 import 'package:transport_mobile/data/depart_repository.dart';
 import 'package:transport_mobile/data/feuille_repository.dart';
+import 'package:transport_mobile/data/quota_service.dart';
 import 'package:transport_mobile/storage/cache_store.dart';
 import 'package:transport_mobile/storage/outbox.dart';
 import 'package:transport_mobile/storage/string_box.dart';
@@ -45,7 +46,10 @@ class Session {
       outbox: outbox,
       handlers: buildActionHandlers(api),
       currentUserId: () => auth.user?.id,
+      probe: () => api.get('/auth/me/'),
     );
+    quota = QuotaService(api: api, cache: cache, outbox: outbox, currentUser: () => auth.user);
+    sync.afterSync = quota.onSynced;
   }
 
   final network = SwitchableClient();
@@ -55,6 +59,7 @@ class Session {
   late final Outbox outbox;
   late final AuthController auth;
   late final SyncService sync;
+  late final QuotaService quota;
 }
 
 Map<String, dynamic> vente(int departId, String nom, {String prix = '5000'}) => {
@@ -200,5 +205,83 @@ void main() {
 
     expect(rouverte.status, AuthStatus.authenticated);
     expect(rouverte.user!.username, 'guichetier_stc');
+  });
+
+  // --- Idempotence : la même vente rejouée ne crée pas de second ticket -------------------
+  test('IDEMPOTENCE : la même vente rejouée renvoie le ticket existant, sans doublon', () async {
+    final s = Session();
+    await s.auth.login('guichetier_stc', demoPassword);
+    final depart = (await DepartRepository(api: s.api, cache: s.cache).loadSellable(s.auth.user!)).data.first;
+    final avant = (await tickets(s)).length;
+    final cle = 'e2e-${DateTime.now().microsecondsSinceEpoch}';
+    final corps = vente(depart.id, '$marque idempotent');
+
+    final premiere = await s.api.post('/tickets/', body: corps, headers: {'Idempotency-Key': cle}) as Map;
+    final rejeu = await s.api.post('/tickets/', body: corps, headers: {'Idempotency-Key': cle}) as Map;
+
+    expect(rejeu['id'], premiere['id']);
+    expect((await tickets(s)).length, avant + 1);
+    // Même clé, vente différente : refusée (409).
+    await expectLater(
+      s.api.post('/tickets/', body: vente(depart.id, '$marque autre', prix: '9999'), headers: {'Idempotency-Key': cle}),
+      throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+    );
+  });
+
+  // --- Places garanties hors ligne (nécessite le départ « E2E-Garantie », voir plus bas) ----
+  group('GARANTIE hors ligne, deux guichetiers, un car de 3 places', () {
+    Future<Session> guichetier(String compte) async {
+      final s = Session();
+      await s.auth.login(compte, demoPassword);
+      return s;
+    }
+
+    Future<int> departGarantie(Session s) async {
+      final departs = await DepartRepository(api: s.api, cache: s.cache).loadSellable(s.auth.user!);
+      return departs.data.firstWhere((d) => d.ligneNom == 'E2E-Garantie').id;
+    }
+
+    test('réserver, vendre hors ligne, synchroniser : tout est accepté', () async {
+      final a = await guichetier('guichetier_stc');
+      final b = await guichetier('guichetier2_stc');
+      final departId = await departGarantie(a);
+      await a.quota.release();
+      await b.quota.release();
+
+      // A (avec réseau) fait mettre 2 places de côté ; B n'obtient que la dernière.
+      await a.quota.refresh();
+      await b.quota.refresh();
+      expect(a.quota.remainingFor(departId), 2);
+      expect(b.quota.remainingFor(departId), 1);
+
+      // B, en ligne, vend sa place réservée puis se heurte aux places réservées par A.
+      final venteB = await b.sync.submit(type: ActionTypes.venteTicket, payload: vente(departId, '$marque B1'));
+      expect(venteB.status, SubmitStatus.sent, reason: venteB.message);
+      final refus = await b.sync.submit(type: ActionTypes.venteTicket, payload: vente(departId, '$marque B2'));
+      expect(refus.status, SubmitStatus.rejected);
+      expect(refus.message, contains('réservées'));
+
+      // A perd le réseau : ses 2 ventes sont autorisées (garanties), la 3e est bloquée.
+      a.network.offline = true;
+      for (final nom in ['A1', 'A2']) {
+        expect(a.quota.remainingFor(departId), greaterThan(0));
+        final r = await a.sync.submit(type: ActionTypes.venteTicket, payload: vente(departId, '$marque $nom'));
+        expect(r.status, SubmitStatus.queued);
+        await a.quota.consume(departId);
+      }
+      expect(a.quota.remainingFor(departId), 0);
+      expect(await a.sync.canReachServer(), isFalse);
+
+      // Retour du réseau : les 2 ventes de A sont ACCEPTÉES (aucune n'est refusée).
+      a.network.offline = false;
+      final bilan = await a.sync.syncNow();
+      expect(bilan.sent, 2);
+      expect(bilan.rejected, 0);
+      final vendus = (await tickets(a)).where((t) => t['depart'] == departId && '${t['passager_nom']}'.startsWith(marque));
+      expect(vendus, hasLength(3)); // le car de 3 places est plein, sans dépassement
+
+      await a.quota.release();
+      await b.quota.release();
+    });
   });
 }

@@ -8,7 +8,7 @@ import 'sync_service.dart';
 /// Déclenche la synchronisation aux bons moments :
 ///  - retour de la connexion réseau ;
 ///  - retour de l'application au premier plan ;
-///  - régulièrement tant qu'il reste des actions en attente (réseau instable).
+///  - régulièrement (réseau instable, actions restées en attente, places à renouveler).
 class SyncTriggers with WidgetsBindingObserver {
   SyncTriggers({
     required this.sync,
@@ -30,9 +30,8 @@ class SyncTriggers with WidgetsBindingObserver {
       sync.setOnline(online);
       if (online) sync.syncNow();
     });
-    _timer = Timer.periodic(interval, (_) {
-      if (sync.pendingCount > 0) sync.syncNow();
-    });
+    // Même sans action en attente : le passage périodique complète les places réservées.
+    _timer = Timer.periodic(interval, (_) => sync.syncNow());
   }
 
   void dispose() {
