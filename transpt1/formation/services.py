@@ -42,9 +42,10 @@ def terminer_etape(user, etape_id):
     etape = get_object_or_404(parcours.etapes, pk=etape_id)
 
     with transaction.atomic():
+        # Pas de select_related : etape_courante est nullable, donc la jointure serait
+        # externe et PostgreSQL refuse FOR UPDATE dessus. On verrouille la ligne seule.
         progression = (
-            ProgressionFormation.objects.select_for_update(of=("self",))
-            .select_related("etape_courante")
+            ProgressionFormation.objects.select_for_update()
             .filter(user=user, parcours=parcours)
             .first()
         )

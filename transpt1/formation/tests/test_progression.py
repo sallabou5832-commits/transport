@@ -1,6 +1,7 @@
 import pytest
 from django.core.management import call_command
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from core.models import Role
@@ -166,6 +167,21 @@ class TestProgression:
 
         assert response.status_code == 400
         assert not ProgressionFormation.objects.exists()
+
+    def test_le_verrou_de_progression_ne_fait_aucune_jointure(
+        self, api_client, parcours_de_base, guichetier_a
+    ):
+        # PostgreSQL refuse FOR UPDATE sur le côté nullable d'une jointure externe.
+        api_client.force_authenticate(user=guichetier_a)
+        api_client.post(DEMARRER)
+        etapes = ids_etapes(guichetier_a)
+
+        with CaptureQueriesContext(connection) as requetes:
+            assert api_client.post(terminer_url(etapes[0])).status_code == 200
+
+        verrous = [r["sql"] for r in requetes.captured_queries if "FOR UPDATE" in r["sql"]]
+        assert len(verrous) == 1
+        assert "JOIN" not in verrous[0].upper()
 
     def test_on_ne_saute_pas_d_etape(self, api_client, parcours_de_base, guichetier_a):
         api_client.force_authenticate(user=guichetier_a)
