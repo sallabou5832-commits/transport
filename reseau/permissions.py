@@ -17,3 +17,36 @@ class CanManageOwnGare(BasePermission):
         if user.role != Role.CHEF_GARE:
             return True
         return obj.chef_id == user.id
+
+
+class _IsNetworkManagerOrReadOnly(BasePermission):
+    """Reads are open to any authenticated same-company user; only the
+    roles listed in `ROLES` may create, update or delete.
+    """
+
+    ROLES = set()
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        user = request.user
+        return bool(user and user.is_authenticated and user.role in self.ROLES)
+
+
+class IsGareManagerOrReadOnly(_IsNetworkManagerOrReadOnly):
+    ROLES = {Role.CHEF_GARE, Role.DIRECTEUR_EXPLOITATION, Role.SECRETAIRE_GENERAL, Role.PDG, Role.SUPERADMIN}
+
+
+class IsLigneManagerOrReadOnly(_IsNetworkManagerOrReadOnly):
+    ROLES = {Role.CHEF_LIGNE, Role.DIRECTEUR_EXPLOITATION, Role.SECRETAIRE_GENERAL, Role.PDG, Role.SUPERADMIN}
+
+
+class IsVehiculeManagerOrReadOnly(_IsNetworkManagerOrReadOnly):
+    ROLES = {
+        Role.DIRECTEUR_TECHNIQUE,
+        Role.CHEF_ATELIER,
+        Role.DIRECTEUR_EXPLOITATION,
+        Role.SECRETAIRE_GENERAL,
+        Role.PDG,
+        Role.SUPERADMIN,
+    }

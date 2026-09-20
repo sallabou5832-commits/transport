@@ -1,4 +1,4 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from core.models import Role
 
@@ -18,12 +18,46 @@ def is_guichetier_or_above(role):
         return False
 
 
-class IsGuichetierOrAbove(BasePermission):
-    """Restricts access to guichetiers and roles above them in the hierarchy.
+class IsGuichetierOrAboveAlways(BasePermission):
+    """Every method (reads included) requires guichetier-or-above.
 
-    Combine with IsSameCompany for object-level company scoping.
+    Used for the cash-closing report, which exposes a guichetier's sales figures
+    and should not be readable by roles outside the sales hierarchy.
     """
 
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.is_authenticated and is_guichetier_or_above(user.role))
+
+
+class IsGuichetierOrAboveWrite(BasePermission):
+    """Reads are open to any authenticated same-company user; only creating,
+    updating or deleting a ticket requires guichetier-or-above.
+    """
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        return IsGuichetierOrAboveAlways().has_permission(request, view)
+
+
+DISPATCH_ROLES = {
+    Role.CHEF_LIGNE,
+    Role.CHEF_GARE,
+    Role.DIRECTEUR_EXPLOITATION,
+    Role.SECRETAIRE_GENERAL,
+    Role.PDG,
+    Role.SUPERADMIN,
+}
+
+
+class IsDispatchManagerOrReadOnly(BasePermission):
+    """Reads are open to any authenticated same-company user; scheduling a
+    depart (create/update/delete) is reserved to dispatch/management roles.
+    """
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        user = request.user
+        return bool(user and user.is_authenticated and user.role in DISPATCH_ROLES)

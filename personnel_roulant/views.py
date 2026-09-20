@@ -13,6 +13,7 @@ from personnel_roulant.permissions import (
     IsOwnFeuilleDeRoute,
     IsOwnIncident,
     IsQhseOuDirecteurExploitation,
+    IsRoulantManagerOrReadOnly,
 )
 from personnel_roulant.serializers import (
     ChecklistDepartSerializer,
@@ -35,7 +36,7 @@ class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
         "depart", "depart__vehicule", "chauffeur", "company"
     )
     serializer_class = FeuilleDeRouteSerializer
-    permission_classes = [IsAuthenticated, IsSameCompany, IsOwnFeuilleDeRoute]
+    permission_classes = [IsAuthenticated, IsSameCompany, IsRoulantManagerOrReadOnly, IsOwnFeuilleDeRoute]
 
     @action(detail=True, methods=["post"], url_path="demarrer")
     def demarrer(self, request, pk=None):
@@ -73,13 +74,13 @@ class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
 class ChecklistDepartViewSet(PersonnelRoulantViewSet):
     queryset = ChecklistDepart.objects.select_related("feuille_de_route", "company")
     serializer_class = ChecklistDepartSerializer
-    permission_classes = [IsAuthenticated, IsSameCompany, IsOwnChecklist]
+    permission_classes = [IsAuthenticated, IsSameCompany, IsRoulantManagerOrReadOnly, IsOwnChecklist]
 
 
 class IncidentViewSet(PersonnelRoulantViewSet):
     queryset = Incident.objects.select_related("feuille_de_route", "vehicule", "chauffeur", "company")
     serializer_class = IncidentSerializer
-    permission_classes = [IsAuthenticated, IsSameCompany, IsOwnIncident]
+    permission_classes = [IsAuthenticated, IsSameCompany, IsRoulantManagerOrReadOnly, IsOwnIncident]
 
     @action(
         detail=False,

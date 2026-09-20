@@ -9,7 +9,12 @@ from rest_framework.response import Response
 from core.mixins import CompanyScopedQuerysetMixin
 from core.permissions import IsSameCompany
 from maintenance.models import OrdreReparation, Piece, SortiePiece
-from maintenance.permissions import CanManageOrdreReparation, CanManageStockMovement
+from maintenance.permissions import (
+    CanCreateOrdreReparation,
+    CanManageOrdreReparation,
+    CanManagePiece,
+    CanManageStockMovement,
+)
 from maintenance.serializers import OrdreReparationSerializer, PieceSerializer, SortiePieceSerializer
 
 
@@ -24,7 +29,7 @@ class MaintenanceViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
 class PieceViewSet(MaintenanceViewSet):
     queryset = Piece.objects.select_related("company")
     serializer_class = PieceSerializer
-    permission_classes = [IsAuthenticated, IsSameCompany]
+    permission_classes = [IsAuthenticated, IsSameCompany, CanManagePiece]
 
     @action(detail=False, methods=["get"], url_path="sous-seuil")
     def sous_seuil(self, request):
@@ -38,7 +43,12 @@ class PieceViewSet(MaintenanceViewSet):
 class OrdreReparationViewSet(MaintenanceViewSet):
     queryset = OrdreReparation.objects.select_related("vehicule", "mecanicien", "company")
     serializer_class = OrdreReparationSerializer
-    permission_classes = [IsAuthenticated, IsSameCompany, CanManageOrdreReparation]
+    permission_classes = [
+        IsAuthenticated,
+        IsSameCompany,
+        CanCreateOrdreReparation,
+        CanManageOrdreReparation,
+    ]
 
 
 class SortiePieceViewSet(MaintenanceViewSet):

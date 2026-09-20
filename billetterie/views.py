@@ -10,7 +10,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from billetterie.models import Depart, ModePaiement, Ticket
-from billetterie.permissions import IsGuichetierOrAbove
+from billetterie.permissions import (
+    IsDispatchManagerOrReadOnly,
+    IsGuichetierOrAboveAlways,
+    IsGuichetierOrAboveWrite,
+)
 from billetterie.serializers import DepartSerializer, TicketSerializer
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
@@ -18,8 +22,6 @@ from core.permissions import IsSameCompany
 
 
 class BilletterieViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, IsSameCompany, IsGuichetierOrAbove]
-
     def perform_create(self, serializer):
         user = self.request.user
         if user.company_id is None:
@@ -30,6 +32,7 @@ class BilletterieViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
 class DepartViewSet(BilletterieViewSet):
     queryset = Depart.objects.select_related("ligne", "vehicule", "chauffeur", "company")
     serializer_class = DepartSerializer
+    permission_classes = [IsAuthenticated, IsSameCompany, IsDispatchManagerOrReadOnly]
 
     @action(detail=True, methods=["get"], url_path="places-restantes")
     def places_restantes(self, request, pk=None):
@@ -47,6 +50,7 @@ class DepartViewSet(BilletterieViewSet):
 class TicketViewSet(BilletterieViewSet):
     queryset = Ticket.objects.select_related("depart", "depart__vehicule", "company", "vendu_par")
     serializer_class = TicketSerializer
+    permission_classes = [IsAuthenticated, IsSameCompany, IsGuichetierOrAboveWrite]
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -64,7 +68,12 @@ class TicketViewSet(BilletterieViewSet):
             depart.places_vendues += 1
             depart.save(update_fields=["places_vendues"])
 
-    @action(detail=False, methods=["get"], url_path="cloture-caisse")
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="cloture-caisse",
+        permission_classes=[IsAuthenticated, IsSameCompany, IsGuichetierOrAboveAlways],
+    )
     def cloture_caisse(self, request):
         user = request.user
         raw_guichetier_id = request.query_params.get("guichetier", user.id)

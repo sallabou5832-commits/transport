@@ -5,7 +5,12 @@ from rest_framework.permissions import IsAuthenticated
 from core.mixins import CompanyScopedQuerysetMixin
 from core.permissions import IsSameCompany
 from reseau.models import Gare, Ligne, Vehicule
-from reseau.permissions import CanManageOwnGare
+from reseau.permissions import (
+    CanManageOwnGare,
+    IsGareManagerOrReadOnly,
+    IsLigneManagerOrReadOnly,
+    IsVehiculeManagerOrReadOnly,
+)
 from reseau.serializers import GareSerializer, LigneSerializer, VehiculeSerializer
 
 
@@ -24,14 +29,16 @@ class CompanyOwnedViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
 class GareViewSet(CompanyOwnedViewSet):
     queryset = Gare.objects.select_related("company", "chef")
     serializer_class = GareSerializer
-    permission_classes = [IsAuthenticated, IsSameCompany, CanManageOwnGare]
+    permission_classes = [IsAuthenticated, IsSameCompany, IsGareManagerOrReadOnly, CanManageOwnGare]
 
 
 class LigneViewSet(CompanyOwnedViewSet):
     queryset = Ligne.objects.select_related("company", "gare_depart", "gare_arrivee")
     serializer_class = LigneSerializer
+    permission_classes = [IsAuthenticated, IsSameCompany, IsLigneManagerOrReadOnly]
 
 
 class VehiculeViewSet(CompanyOwnedViewSet):
     queryset = Vehicule.objects.select_related("company")
     serializer_class = VehiculeSerializer
+    permission_classes = [IsAuthenticated, IsSameCompany, IsVehiculeManagerOrReadOnly]
