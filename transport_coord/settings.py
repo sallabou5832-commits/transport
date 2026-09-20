@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'personnel_roulant',
     'maintenance',
     'supports',
+    'dashboard',
 ]
 
 AUTH_USER_MODEL = 'core.User'
