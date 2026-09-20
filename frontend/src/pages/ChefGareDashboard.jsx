@@ -67,7 +67,7 @@ export default function ChefGareDashboard() {
                       <td>{new Date(depart.date_heure).toLocaleString('fr-FR')}</td>
                       <td>{STATUT_LABELS[depart.statut] || depart.statut}</td>
                       <td>
-                        <Jauge vendues={depart.places_vendues} capacite={vehicule?.capacite} />
+                        <Jauge vendues={depart.places_vendues} capacite={vehicule?.capacite} reservees={depart.places_reservees} />
                       </td>
                     </tr>
                   )

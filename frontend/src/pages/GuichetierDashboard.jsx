@@ -90,7 +90,11 @@ export default function GuichetierDashboard() {
           </label>
 
           {departSelectionne && (
-            <Jauge vendues={departSelectionne.places_vendues} capacite={vehiculeSelectionne?.capacite} />
+            <Jauge
+              vendues={departSelectionne.places_vendues}
+              capacite={vehiculeSelectionne?.capacite}
+              reservees={departSelectionne.places_reservees}
+            />
           )}
 
           <label>
