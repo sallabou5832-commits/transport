@@ -2,7 +2,9 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -10,7 +12,8 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from billetterie.models import Depart, ModePaiement, Ticket
+from billetterie import reservations
+from billetterie.models import Depart, ModePaiement, ReservationHorsLigne, Ticket
 from billetterie.permissions import (
     IsDispatchManagerOrReadOnly,
     IsGuichetierOrAboveAlways,
@@ -45,6 +48,18 @@ class DepartViewSet(BilletterieViewSet):
     serializer_class = DepartSerializer
     permission_classes = [IsAuthenticated, IsSameCompany, IsDispatchManagerOrReadOnly]
 
+    def get_queryset(self):
+        # Places réservées par départ, calculées en une requête (évite un appel par départ).
+        return super().get_queryset().annotate(
+            _places_reservees=Coalesce(
+                Sum(
+                    "reservations_hors_ligne__places",
+                    filter=Q(reservations_hors_ligne__expire_le__gt=timezone.now()),
+                ),
+                0,
+            )
+        )
+
     @action(detail=True, methods=["get"], url_path="places-restantes")
     def places_restantes(self, request, pk=None):
         depart = self.get_object()
@@ -54,6 +69,8 @@ class DepartViewSet(BilletterieViewSet):
                 "capacite": depart.vehicule.capacite,
                 "places_vendues": depart.places_vendues,
                 "places_restantes": depart.places_restantes,
+                "places_reservees": depart.places_reservees,
+                "places_disponibles": depart.places_disponibles,
             }
         )
 
@@ -134,10 +151,7 @@ class TicketViewSet(BilletterieViewSet):
                 .select_related("vehicule", "ligne")
                 .get(pk=depart_pk)
             )
-            if depart.places_vendues >= depart.vehicule.capacite:
-                raise ValidationError(
-                    {"depart": "Plus aucune place disponible sur ce départ."}
-                )
+            self._reserver_une_place(depart, user)
             serializer.save(
                 vendu_par=user,
                 company=user.company,
@@ -147,6 +161,72 @@ class TicketViewSet(BilletterieViewSet):
             depart.save(update_fields=["places_vendues"])
 
         notifier_vente_ticket(serializer.instance, depart)
+
+    @staticmethod
+    def _reserver_une_place(depart, user):
+        """Vérifie qu'une place existe pour `user` et la consomme (sous verrou du départ).
+
+        Un guichetier qui a réservé des places pour la vente hors ligne les utilise en
+        premier (elles lui sont garanties). Sinon il ne peut vendre que les places que
+        personne d'autre n'a réservées.
+        """
+        maintenant = timezone.now()
+        reservation = (
+            ReservationHorsLigne.objects.select_for_update()
+            .filter(depart=depart, guichetier=user, expire_le__gt=maintenant)
+            .first()
+        )
+        if reservation is not None:
+            if reservation.places > 1:
+                reservation.places -= 1
+                reservation.save(update_fields=["places", "mis_a_jour_le"])
+            else:
+                reservation.delete()
+            return
+
+        capacite = depart.vehicule.capacite
+        if depart.places_vendues >= capacite:
+            raise ValidationError({"depart": "Plus aucune place disponible sur ce départ."})
+        reservees = (
+            ReservationHorsLigne.objects.filter(depart=depart, expire_le__gt=maintenant).aggregate(
+                total=Sum("places")
+            )["total"]
+            or 0
+        )
+        if depart.places_vendues + reservees >= capacite:
+            raise ValidationError(
+                {
+                    "depart": "Les dernières places de ce départ sont réservées pour des "
+                    "ventes hors ligne d'autres guichets."
+                }
+            )
+
+    @action(
+        detail=False,
+        methods=["post", "delete"],
+        url_path="reserver-hors-ligne",
+        permission_classes=[IsAuthenticated, IsGuichetierOrAboveAlways],
+    )
+    def reserver_hors_ligne(self, request):
+        """POST : met de côté des places pour la vente hors ligne du guichetier connecté.
+
+        Retourne ses réservations actives ; à rappeler régulièrement tant que le réseau est
+        disponible (complète après des ventes, prolonge l'expiration).
+        DELETE : rend toutes ses places réservées (fin de service, déconnexion).
+        """
+        user = request.user
+        if user.company_id is None:
+            raise ValidationError("Un compte sans compagnie ne peut pas réserver de places.")
+        if request.method == "DELETE":
+            reservations.liberer_reservations(user)
+            return Response(status=204)
+        accordees = reservations.accorder_reservations(user)
+        return Response(
+            [
+                {"depart": r.depart_id, "places": r.places, "expire_le": r.expire_le}
+                for r in accordees
+            ]
+        )
 
     @action(
         detail=False,

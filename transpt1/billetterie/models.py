@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from core.models import Company
 from reseau.models import Ligne, Vehicule
@@ -35,6 +36,24 @@ class Depart(models.Model):
     @property
     def places_restantes(self):
         return self.vehicule.capacite - self.places_vendues
+
+    @property
+    def places_reservees(self):
+        """Places mises de côté (réservations hors ligne actives), pas encore vendues."""
+        annotee = getattr(self, "_places_reservees", None)  # posée par DepartViewSet (évite N+1)
+        if annotee is not None:
+            return annotee
+        return (
+            self.reservations_hors_ligne.filter(expire_le__gt=timezone.now()).aggregate(
+                total=models.Sum("places")
+            )["total"]
+            or 0
+        )
+
+    @property
+    def places_disponibles(self):
+        """Places qu'un guichetier SANS réservation peut vendre maintenant."""
+        return max(0, self.places_restantes - self.places_reservees)
 
 
 class ModePaiement(models.TextChoices):
@@ -71,3 +90,37 @@ class Ticket(models.Model):
 
     def __str__(self):
         return f"Ticket {self.passager_nom} - {self.depart}"
+
+
+class ReservationHorsLigne(models.Model):
+    """Places mises de côté pour un guichetier afin qu'il puisse vendre hors ligne.
+
+    Sans réseau, un guichetier ignore les ventes des autres : rien ne l'empêcherait de
+    vendre une place déjà prise, et le serveur refuserait la vente à la synchronisation
+    alors que le voyageur a payé. En réservant d'avance ces places (tant qu'il a du réseau),
+    ses ventes hors ligne sont garanties. Invariant, tenu sous verrou du départ :
+    places vendues + places réservées actives <= capacité du véhicule.
+    """
+
+    depart = models.ForeignKey(Depart, on_delete=models.CASCADE, related_name="reservations_hors_ligne")
+    guichetier = models.ForeignKey(
+        "core.User", on_delete=models.CASCADE, related_name="reservations_hors_ligne"
+    )
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="reservations_hors_ligne")
+    # Places encore réservées : diminue à chaque vente du guichetier sur ce départ.
+    places = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    expire_le = models.DateTimeField()
+    mis_a_jour_le = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "réservation hors ligne"
+        verbose_name_plural = "réservations hors ligne"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["depart", "guichetier"], name="reservation_unique_par_depart_et_guichetier"
+            ),
+            models.CheckConstraint(condition=models.Q(places__gte=1), name="reservation_places_positives"),
+        ]
+
+    def __str__(self):
+        return f"{self.places} place(s) hors ligne pour {self.guichetier} sur {self.depart}"

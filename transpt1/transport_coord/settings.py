@@ -216,6 +216,17 @@ CORS_ALLOW_HEADERS = (*default_headers, 'idempotency-key')
 CORS_EXPOSE_HEADERS = ['Idempotent-Replayed']
 
 
+# Billetterie : places réservées pour la vente hors ligne des guichetiers (application mobile)
+#
+# Un guichetier qui a du réseau se voit mettre de côté jusqu'à QUOTA places par départ à venir
+# (dans les HORIZON prochaines heures) ; ses ventes sans réseau les consomment et sont donc
+# garanties. Les places non consommées sont rendues à l'expiration (TTL) ou à la déconnexion.
+# QUOTA=0 désactive la fonction. Compromis : chaque place réservée n'est plus vendable ailleurs.
+BILLETTERIE_QUOTA_HORS_LIGNE = config('BILLETTERIE_QUOTA_HORS_LIGNE', default=2, cast=int)
+BILLETTERIE_RESERVATION_TTL_HEURES = config('BILLETTERIE_RESERVATION_TTL_HEURES', default=12, cast=int)
+BILLETTERIE_HORIZON_HORS_LIGNE_HEURES = config('BILLETTERIE_HORIZON_HORS_LIGNE_HEURES', default=24, cast=int)
+
+
 # Notifications client (SMS / WhatsApp)
 #
 # NOTIFICATIONS_SIMULATION_MODE defaults to True: no real SMS is ever sent unless

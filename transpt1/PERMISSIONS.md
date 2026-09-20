@@ -49,7 +49,19 @@ fiche véhicule elle-même (immatriculation, capacité, statut initial).
 | **Depart** (planification) | Tous les rôles de la compagnie | `chef_ligne`, `chef_gare`, `directeur_exploitation`, `secretaire_general`, `pdg` |
 | **Ticket** (vente) | Tous les rôles de la compagnie | `guichetier` et tout rôle qui lui est hiérarchiquement supérieur (`chef_ligne`, `chef_gare`, `directeur_exploitation`, `qhse`, `secretaire_general`, `pdg`) |
 | **Places restantes** (`/departs/{id}/places-restantes/`) | Tous les rôles de la compagnie | — (lecture seule) |
+| **Réservation de places hors ligne** (`/tickets/reserver-hors-ligne/`, POST/DELETE) | — | `guichetier` et les rôles qui lui sont supérieurs, pour leurs propres réservations uniquement |
 | **Clôture de caisse** (`/tickets/cloture-caisse/`) | `guichetier` (uniquement la sienne) et les rôles supérieurs (peuvent consulter celle de n'importe quel guichetier de la compagnie) | — (lecture seule) |
+
+Règles métier de la vente (`POST /tickets/`) :
+
+- **Idempotence** : l'en-tête `Idempotency-Key` (1 à 64 caractères, propre à chaque vendeur) rend la vente rejouable.
+  Rejouer la même vente renvoie le ticket existant (200) sans décompter de place ni renvoyer de notification ;
+  la même clé avec une vente différente est refusée (409).
+- **Places réservées hors ligne** : un guichetier connecté peut faire mettre de côté des places (quota par départ,
+  `BILLETTERIE_QUOTA_HORS_LIGNE`, expiration `BILLETTERIE_RESERVATION_TTL_HEURES`) pour vendre sans réseau. Ses
+  ventes consomment d'abord ces places, qui lui sont garanties ; un autre guichet ne peut vendre que les places non
+  réservées. Invariant : places vendues + places réservées actives <= capacité du véhicule.
+  `places_reservees` et `places_disponibles` (vendables sans réservation) sont exposées sur les départs.
 
 ## 3. Personnel roulant (`personnel_roulant`) — FeuilleDeRoute, ChecklistDepart, Incident
 

@@ -10,6 +10,10 @@ CHAUFFEUR_ROLES = {Role.CHAUFFEUR_PRINCIPAL, Role.CHAUFFEUR_RELAIS}
 class DepartSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
     places_restantes = serializers.IntegerField(read_only=True)
+    # Places mises de côté pour des ventes hors ligne, et places vendables par un guichetier
+    # qui n'a pas réservé (= restantes - réservées).
+    places_reservees = serializers.IntegerField(read_only=True)
+    places_disponibles = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Depart
@@ -23,6 +27,8 @@ class DepartSerializer(serializers.ModelSerializer):
             "statut",
             "places_vendues",
             "places_restantes",
+            "places_reservees",
+            "places_disponibles",
         ]
         read_only_fields = ["company", "places_vendues"]
 
