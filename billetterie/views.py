@@ -19,6 +19,7 @@ from billetterie.serializers import DepartSerializer, TicketSerializer
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
 from core.permissions import IsSameCompany
+from notifications.services import envoyer_sms
 
 
 class BilletterieViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
@@ -59,7 +60,11 @@ class TicketViewSet(BilletterieViewSet):
 
         depart_pk = serializer.validated_data["depart"].pk
         with transaction.atomic():
-            depart = Depart.objects.select_for_update().select_related("vehicule").get(pk=depart_pk)
+            depart = (
+                Depart.objects.select_for_update()
+                .select_related("vehicule", "ligne")
+                .get(pk=depart_pk)
+            )
             if depart.places_vendues >= depart.vehicule.capacite:
                 raise ValidationError(
                     {"depart": "Plus aucune place disponible sur ce départ."}
@@ -67,6 +72,14 @@ class TicketViewSet(BilletterieViewSet):
             serializer.save(vendu_par=user, company=user.company)
             depart.places_vendues += 1
             depart.save(update_fields=["places_vendues"])
+
+        ticket = serializer.instance
+        message = (
+            f"Bonjour {ticket.passager_nom}, votre billet pour {depart.ligne.nom} le "
+            f"{depart.date_heure:%d/%m/%Y à %H:%M} est confirmé. Prix : {ticket.prix} FCFA. "
+            "Bon voyage !"
+        )
+        envoyer_sms(ticket.passager_telephone, message, company=user.company, ticket=ticket)
 
     @action(
         detail=False,

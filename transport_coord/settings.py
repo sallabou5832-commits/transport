@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'maintenance',
     'supports',
     'dashboard',
+    'notifications',
 ]
 
 AUTH_USER_MODEL = 'core.User'
@@ -179,3 +180,17 @@ SIMPLE_JWT = {
 # https://github.com/adamchainz/django-cors-headers
 
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
+
+
+# Notifications client (SMS / WhatsApp)
+#
+# NOTIFICATIONS_SIMULATION_MODE defaults to True: no real SMS is ever sent unless
+# it is explicitly set to False in the environment. This is intentional — it
+# protects against accidental SMS charges from a dev/test environment that
+# forgot to configure this.
+
+NOTIFICATIONS_SIMULATION_MODE = config('NOTIFICATIONS_SIMULATION_MODE', default=True, cast=bool)
+
+TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
+TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
+TWILIO_FROM_NUMBER = config('TWILIO_FROM_NUMBER', default='')
