@@ -31,6 +31,33 @@ DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='', cast=Csv())
 
+# HTTPS
+#
+# En production, l'API n'est servie qu'en HTTPS : le TLS est terminé par un reverse proxy
+# (nginx, Caddy...) qui relaie en HTTP vers Django en ajoutant X-Forwarded-Proto: https.
+# Activé par défaut dès que DJANGO_DEBUG n'est pas True (développement local en HTTP
+# inchangé) ; DJANGO_FORCE_HTTPS permet de le forcer ou de le couper explicitement.
+# ATTENTION : SECURE_PROXY_SSL_HEADER n'est sûr que si Django n'est joignable QUE par le
+# proxy (il doit écraser X-Forwarded-Proto). Voir DEPLOIEMENT.md.
+FORCE_HTTPS = config('DJANGO_FORCE_HTTPS', default=not DEBUG, cast=bool)
+
+if FORCE_HTTPS:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # HSTS : les navigateurs refusent ensuite le HTTP pour ce site. Durée à allonger
+    # (jusqu'à 1 an) une fois le HTTPS validé ; ne pas mettre 0 en production.
+    SECURE_HSTS_SECONDS = config('DJANGO_HSTS_SECONDS', default=2592000, cast=int)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+
+# W021 (liste « HSTS preload » des navigateurs) volontairement écarté : y figurer est un
+# engagement quasi irréversible (retrait très lent) à ne prendre qu'en connaissance de cause.
+SILENCED_SYSTEM_CHECKS = ['security.W021']
+
+# Origines https:// autorisées à poster des formulaires (admin Django derrière le proxy).
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
+
 
 # Application definition
 
