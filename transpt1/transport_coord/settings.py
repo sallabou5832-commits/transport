@@ -199,6 +199,16 @@ TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
 TWILIO_FROM_NUMBER = config('TWILIO_FROM_NUMBER', default='')
 
+# WhatsApp via Twilio. TWILIO_WHATSAPP_FROM : numéro expéditeur WhatsApp au format
+# international (sans le préfixe "whatsapp:"), ex. le bac à sable Twilio +14155238886.
+# TWILIO_WHATSAPP_CONTENT_SID : modèle de message approuvé (obligatoire en production
+# pour écrire à un client qui ne nous a pas contactés dans les dernières 24 h).
+TWILIO_WHATSAPP_FROM = config('TWILIO_WHATSAPP_FROM', default='')
+TWILIO_WHATSAPP_CONTENT_SID = config('TWILIO_WHATSAPP_CONTENT_SID', default='')
+
+# Canaux utilisés pour confirmer une vente de ticket : "sms", "whatsapp" ou les deux.
+NOTIFICATIONS_CANAUX_TICKET = config('NOTIFICATIONS_CANAUX_TICKET', default='sms,whatsapp', cast=Csv())
+
 ORANGE_SMS_CLIENT_ID = config('ORANGE_SMS_CLIENT_ID', default='')
 ORANGE_SMS_CLIENT_SECRET = config('ORANGE_SMS_CLIENT_SECRET', default='')
 ORANGE_SMS_SENDER = config('ORANGE_SMS_SENDER', default='')

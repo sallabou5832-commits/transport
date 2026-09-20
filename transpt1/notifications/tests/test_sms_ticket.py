@@ -25,7 +25,9 @@ class TestNotificationVenteTicket:
         )
         assert response.status_code == 201
 
-        log = NotificationLog.objects.get(ticket_id=response.data["id"])
+        log = NotificationLog.objects.get(
+            ticket_id=response.data["id"], canal=CanalNotification.SMS
+        )
         assert log.statut == StatutNotification.SIMULE
         assert log.canal == CanalNotification.SMS
         assert log.destinataire == "+2250700000000"
@@ -51,7 +53,9 @@ class TestNotificationVenteTicket:
         )
         assert response.status_code == 201
 
-        log = NotificationLog.objects.get(ticket_id=response.data["id"])
+        log = NotificationLog.objects.get(
+            ticket_id=response.data["id"], canal=CanalNotification.SMS
+        )
         assert "Awa Koné" in log.contenu
         assert depart_a.ligne.nom in log.contenu
         assert "5000.00" in log.contenu

@@ -19,7 +19,7 @@ from billetterie.serializers import DepartSerializer, TicketSerializer
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
 from core.permissions import IsSameCompany
-from notifications.services import envoyer_sms
+from notifications.services import notifier_vente_ticket
 
 
 class BilletterieViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
@@ -73,13 +73,7 @@ class TicketViewSet(BilletterieViewSet):
             depart.places_vendues += 1
             depart.save(update_fields=["places_vendues"])
 
-        ticket = serializer.instance
-        message = (
-            f"Bonjour {ticket.passager_nom}, votre billet pour {depart.ligne.nom} le "
-            f"{depart.date_heure:%d/%m/%Y à %H:%M} est confirmé. Prix : {ticket.prix} FCFA. "
-            "Bon voyage !"
-        )
-        envoyer_sms(ticket.passager_telephone, message, company=user.company, ticket=ticket)
+        notifier_vente_ticket(serializer.instance, depart)
 
     @action(
         detail=False,

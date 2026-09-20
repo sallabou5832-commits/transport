@@ -1,10 +1,11 @@
-"""Fournisseurs SMS : Orange (Côte d'Ivoire) et Twilio (international).
+"""Fournisseurs de messages : SMS via Orange (Côte d'Ivoire) ou Twilio, WhatsApp via Twilio.
 
 Chaque fonction ``envoyer_via_*`` retourne la référence du message côté
 fournisseur, ou lève une exception en cas d'échec. Aucune n'est appelée en mode
 simulation (voir ``notifications.services.envoyer_sms``).
 """
 
+import json
 import re
 from urllib.parse import quote
 
@@ -46,12 +47,6 @@ def orange_est_configure():
     return bool(settings.ORANGE_SMS_CLIENT_ID and settings.ORANGE_SMS_CLIENT_SECRET and settings.ORANGE_SMS_SENDER)
 
 
-def twilio_est_configure():
-    return bool(
-        settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_FROM_NUMBER
-    )
-
-
 def choisir_fournisseur(numero):
     """Détermine le fournisseur à utiliser pour un numéro déjà normalisé.
 
@@ -67,16 +62,44 @@ def choisir_fournisseur(numero):
     return FOURNISSEUR_TWILIO
 
 
-def envoyer_via_twilio(destinataire, contenu):
-    if not twilio_est_configure():
+def _client_twilio(expediteur, nom_variable_expediteur):
+    if not (settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and expediteur):
         raise ErreurFournisseur(
-            "Twilio n'est pas configuré (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER)."
+            "Twilio n'est pas configuré "
+            f"(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, {nom_variable_expediteur})."
         )
     from twilio.rest import Client
 
-    client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+    return Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+
+
+def envoyer_via_twilio(destinataire, contenu):
+    client = _client_twilio(settings.TWILIO_FROM_NUMBER, "TWILIO_FROM_NUMBER")
     message = client.messages.create(body=contenu, from_=settings.TWILIO_FROM_NUMBER, to=destinataire)
     return message.sid
+
+
+def envoyer_whatsapp_via_twilio(destinataire, contenu, variables=None):
+    """Envoie un message WhatsApp via Twilio.
+
+    WhatsApp n'autorise un message libre (``contenu``) que dans les 24 h suivant
+    un message du client, ou dans le bac à sable Twilio après son opt-in. Un
+    message à l'initiative de l'entreprise (confirmation de billet) exige un modèle
+    approuvé par WhatsApp : si ``TWILIO_WHATSAPP_CONTENT_SID`` est renseigné et que
+    des ``variables`` sont fournies, le modèle est utilisé (variables ``{{1}}``,
+    ``{{2}}``...) à la place du texte libre.
+    """
+    client = _client_twilio(settings.TWILIO_WHATSAPP_FROM, "TWILIO_WHATSAPP_FROM")
+    parametres = {
+        "from_": f"whatsapp:{settings.TWILIO_WHATSAPP_FROM}",
+        "to": f"whatsapp:{destinataire}",
+    }
+    if settings.TWILIO_WHATSAPP_CONTENT_SID and variables:
+        parametres["content_sid"] = settings.TWILIO_WHATSAPP_CONTENT_SID
+        parametres["content_variables"] = json.dumps(variables)
+    else:
+        parametres["body"] = contenu
+    return client.messages.create(**parametres).sid
 
 
 def _orange_jeton(*, forcer=False):
