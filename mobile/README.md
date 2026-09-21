@@ -92,13 +92,18 @@ l'adresse de développement : pour joindre un serveur, compilez avec `--dart-def
 ### 5. Version de production (release) : HTTPS obligatoire
 
 ```bash
-flutter build apk --release --dart-define=API_BASE_URL=https://api.votre-domaine.ci/api
+flutter build apk --release --target-platform android-arm,android-arm64 --dart-define=API_BASE_URL=https://api.votre-domaine.ci/api
 ```
 
 Une version release **refuse** de démarrer (écran « Application mal configurée ») si l'adresse de l'API
 est absente ou en `http://`. Android et iOS bloquent de toute façon le HTTP en clair hors développement.
 La mise en place du HTTPS côté serveur est décrite dans `transpt1/DEPLOIEMENT.md`.
-Une version release doit aussi être **signée** (voir la [documentation Flutter](https://docs.flutter.dev/deployment/android)).
+
+- **Toujours `android-arm` ET `android-arm64`** : de nombreux téléphones d'entrée de gamme sont en 32 bits. Un APK compilé
+  pour `android-arm64` seul s'installe sur eux puis se ferme au lancement (le moteur Flutter 32 bits n'y est pas).
+- **Signature** : la version release est signée par la clé décrite dans `android/key.properties` (ignoré par git, comme le
+  keystore). **Sans ce fichier la compilation échoue** (volontairement : pas de signature silencieuse avec la clé de
+  débogage). Création, sauvegarde et vérification de la clé, puis essai sur téléphones : [`TEST_TELEPHONES.md`](TEST_TELEPHONES.md).
 
 ### 6. Essayer le mode hors ligne
 
@@ -207,9 +212,10 @@ ventes en attente ont pu être perdues.
   déverrouillé entre de mauvaises mains.
 - **Android et iOS** : l'application est vérifiée par les tests, contre le vrai backend et dans Chrome, mais
   elle n'a pas été lancée sur un émulateur ni un téléphone dans cet environnement (aucune virtualisation
-  disponible). L'APK de débogage se compile (`flutter build apk --debug` : 153 Mo, trois architectures), mais il
-  n'a jamais été installé sur un appareil. iOS n'a reçu aucune configuration spécifique.
-- **Signature de la version release** : elle utilise encore la clé de débogage (`android/app/build.gradle.kts`).
-  Créez une vraie clé de signature, gardée hors du dépôt, avant de distribuer un APK (voir `transpt1/DEPLOIEMENT.md` §7).
+  disponible). Les APK de débogage et **release signé** se compilent, mais aucun n'a jamais été installé sur un appareil :
+  le protocole d'essai sur de vrais téléphones est dans [`TEST_TELEPHONES.md`](TEST_TELEPHONES.md), **il reste à exécuter**.
+  iOS n'a reçu aucune configuration spécifique.
+- **Signature de la version release** : configurée (clé propre, hors du dépôt, dans `android/key.properties`) et vérifiée
+  par `apksigner`. **À sauvegarder hors de l'ordinateur** : sa perte interdit toute mise à jour des téléphones installés.
 - Le chauffeur ne peut pas encore démarrer/terminer sa feuille de route, ni faire sa checklist depuis
   le mobile : ces actions du cahier des charges sont à ajouter (voir « Ajouter une action hors ligne »).
