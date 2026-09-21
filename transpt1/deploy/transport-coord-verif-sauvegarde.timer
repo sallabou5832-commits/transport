@@ -1,0 +1,9 @@
+[Unit]
+Description=Test de restauration hebdomadaire de la sauvegarde Transport Coord
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

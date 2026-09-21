@@ -34,3 +34,8 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Sauvegardes de la base (donnees reelles : ne jamais versionner)
+sauvegardes/
+*.dump
+*.dump.sha256

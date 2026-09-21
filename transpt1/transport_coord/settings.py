@@ -259,6 +259,20 @@ BILLETTERIE_RESERVATION_TTL_HEURES = config('BILLETTERIE_RESERVATION_TTL_HEURES'
 BILLETTERIE_HORIZON_HORS_LIGNE_HEURES = config('BILLETTERIE_HORIZON_HORS_LIGNE_HEURES', default=24, cast=int)
 
 
+# Sauvegardes de la base (manage.py sauvegarde_base / verifier_sauvegarde / etat_sauvegarde)
+#
+# BACKUP_DIR : dossier des sauvegardes — de préférence un autre disque que celui de PostgreSQL.
+# On garde BACKUP_RETENTION_DAYS jours, jamais moins de BACKUP_MIN_KEEP fichiers. BACKUP_POST_COMMAND :
+# commande lancée avec le chemin du fichier en dernier argument pour l'envoyer hors du serveur
+# (ex. « rclone copy », « scp ») ; sans copie hors du serveur, une panne du disque emporte tout.
+# `or` : une ligne « BACKUP_DIR= » laissée vide dans le .env ne doit pas écrire les sauvegardes dans le dossier courant.
+BACKUP_DIR = config('BACKUP_DIR', default='') or str(BASE_DIR / 'sauvegardes')
+BACKUP_RETENTION_DAYS = config('BACKUP_RETENTION_DAYS', default=14, cast=int)
+BACKUP_MIN_KEEP = config('BACKUP_MIN_KEEP', default=3, cast=int)
+BACKUP_MAX_AGE_HOURS = config('BACKUP_MAX_AGE_HOURS', default=26, cast=int)
+BACKUP_POST_COMMAND = config('BACKUP_POST_COMMAND', default='')
+
+
 # Notifications client (SMS / WhatsApp)
 #
 # NOTIFICATIONS_SIMULATION_MODE defaults to True: no real SMS is ever sent unless

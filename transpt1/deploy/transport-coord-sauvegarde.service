@@ -1,0 +1,15 @@
+# Sauvegarde de la base — lancée chaque nuit par transport-coord-sauvegarde.timer.
+# Installation : voir DEPLOIEMENT.md §3 (copier dans /etc/systemd/system/, adapter les chemins et l'utilisateur).
+[Unit]
+Description=Sauvegarde de la base Transport Coord
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=transport
+WorkingDirectory=/srv/transport/transpt1
+EnvironmentFile=/srv/transport/transpt1/.env
+# Le dossier des sauvegardes (BACKUP_DIR) et l'envoi hors du serveur (BACKUP_POST_COMMAND) se règlent dans le .env.
+ExecStart=/srv/transport/venv/bin/python manage.py sauvegarde_base
+# Un échec (base injoignable, disque plein, envoi refusé) marque l'unité « failed » :
+# `systemctl --failed` ou votre supervision le montre.

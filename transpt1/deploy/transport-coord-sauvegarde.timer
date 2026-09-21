@@ -1,0 +1,11 @@
+[Unit]
+Description=Sauvegarde nocturne de la base Transport Coord
+
+[Timer]
+# Hors des heures de vente. Persistent : si le serveur était éteint à l'heure prévue, la sauvegarde part au redémarrage.
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

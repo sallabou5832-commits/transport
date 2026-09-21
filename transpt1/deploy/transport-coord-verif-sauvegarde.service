@@ -1,0 +1,17 @@
+# Test de restauration hebdomadaire : restaure la dernière sauvegarde dans une base temporaire, compare, supprime.
+# Il faut un rôle PostgreSQL qui a le droit CREATEDB (celui de l'application ne l'a pas en production) :
+#   CREATE ROLE transport_coord_verif LOGIN CREATEDB PASSWORD '<mot de passe fort>';
+# Ses identifiants vont dans /etc/transport-coord/verif.env (chmod 600), jamais dans le dépôt :
+#   SAUVEGARDE_ADMIN_USER=transport_coord_verif
+#   SAUVEGARDE_ADMIN_PASSWORD=...
+[Unit]
+Description=Test de restauration de la dernière sauvegarde Transport Coord
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=transport
+WorkingDirectory=/srv/transport/transpt1
+EnvironmentFile=/srv/transport/transpt1/.env
+EnvironmentFile=/etc/transport-coord/verif.env
+ExecStart=/srv/transport/venv/bin/python manage.py verifier_sauvegarde
