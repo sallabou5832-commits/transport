@@ -16,11 +16,13 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import include, path
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
+
+from audit.views import ConnexionAuditee
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/login/', ConnexionAuditee.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/', include('core.urls')),
     path('api/', include('reseau.urls')),
@@ -30,4 +32,5 @@ urlpatterns = [
     path('api/', include('supports.urls')),
     path('api/', include('dashboard.urls')),
     path('api/', include('formation.urls')),
+    path('api/', include('audit.urls')),
 ]

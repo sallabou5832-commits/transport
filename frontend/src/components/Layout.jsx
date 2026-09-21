@@ -1,6 +1,6 @@
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { ROLE_LABELS } from '../auth/roles.js'
+import { PAGES_ANNEXES, ROLE_LABELS, dashboardPathForRole } from '../auth/roles.js'
 
 export default function Layout({ title, children }) {
   const { user, logout } = useAuth()
@@ -19,6 +19,10 @@ export default function Layout({ title, children }) {
           <span className="topbar-title">{title}</span>
         </div>
         <div className="topbar-user">
+          <nav className="topbar-nav" aria-label="Navigation">
+            <Link to={dashboardPathForRole(user?.role)}>Tableau de bord</Link>
+            {PAGES_ANNEXES['/audit'].includes(user?.role) && <Link to="/audit">Journal d&apos;audit</Link>}
+          </nav>
           <span>
             {user?.first_name || user?.username} — {ROLE_LABELS[user?.role] || user?.role}
           </span>

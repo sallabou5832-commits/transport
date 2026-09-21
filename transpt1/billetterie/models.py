@@ -29,6 +29,8 @@ class Depart(models.Model):
 
     class Meta:
         ordering = ["-date_heure"]
+        # Les tableaux de bord et le planning filtrent par compagnie et par jour.
+        indexes = [models.Index(fields=["company", "date_heure"], name="depart_company_date_heure")]
 
     def __str__(self):
         return f"{self.ligne} - {self.date_heure:%Y-%m-%d %H:%M}"
@@ -61,6 +63,11 @@ class ModePaiement(models.TextChoices):
     MOBILE_MONEY = "mobile_money", "Mobile money"
 
 
+class StatutTicket(models.TextChoices):
+    VALIDE = "valide", "Valide"
+    ANNULE = "annule", "Annulé"
+
+
 class Ticket(models.Model):
     depart = models.ForeignKey(Depart, on_delete=models.PROTECT, related_name="tickets")
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="tickets")
@@ -78,8 +85,22 @@ class Ticket(models.Model):
     # par exemple après une coupure réseau, ne crée pas un second ticket.
     cle_idempotence = models.CharField(max_length=64, null=True, blank=True, editable=False)
 
+    # Un ticket vendu ne se modifie ni ne se supprime jamais : une erreur se corrige par une annulation, qui garde
+    # le ticket, dit qui l'a annulé, quand et pourquoi, libère la place et sort la vente des recettes.
+    statut = models.CharField(
+        max_length=10, choices=StatutTicket.choices, default=StatutTicket.VALIDE, db_index=True
+    )
+    annule_par = models.ForeignKey(
+        "core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="tickets_annules"
+    )
+    annule_le = models.DateTimeField(null=True, blank=True)
+    motif_annulation = models.CharField(max_length=255, blank=True)
+
     class Meta:
         ordering = ["-date_vente"]
+        indexes = [
+            models.Index(fields=["company", "date_vente"], name="ticket_company_date_vente"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["vendu_par", "cle_idempotence"],

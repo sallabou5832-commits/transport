@@ -143,6 +143,9 @@ export default function GuichetierDashboard() {
           <button type="submit" disabled={submitting || !departId}>
             {submitting ? 'Vente en cours…' : 'Vendre le ticket'}
           </button>
+          <p className="muted">
+            Une erreur de vente ? Un ticket vendu ne se modifie pas : demandez son annulation à votre chef de gare.
+          </p>
         </form>
       </section>
     </Layout>

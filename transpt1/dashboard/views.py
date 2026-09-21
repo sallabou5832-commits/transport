@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from billetterie.models import Depart, DepartStatut, Ticket
+from billetterie.models import Depart, DepartStatut, StatutTicket, Ticket
 from core.models import Company, Role, User
 from core.serializers import nom_complet
 from dashboard.permissions import IsDirection, IsExploitation, IsQhse, IsSuperadmin
@@ -105,7 +105,9 @@ class DashboardDirectionView(APIView):
             incidents_par_gravite[row["gravite"]] = row["nombre"]
 
         recettes_du_jour = (
-            Ticket.objects.filter(company=company, date_vente__date=today).aggregate(
+            Ticket.objects.filter(
+                company=company, date_vente__date=today, statut=StatutTicket.VALIDE
+            ).aggregate(
                 total=Sum("prix")
             )["total"]
             or Decimal("0")
@@ -320,7 +322,9 @@ class DashboardPlateformeView(APIView):
 
         tickets_du_jour = {
             ligne["company_id"]: ligne
-            for ligne in Ticket.objects.filter(date_vente__gte=debut_jour, date_vente__lt=fin_jour)
+            for ligne in Ticket.objects.filter(
+                date_vente__gte=debut_jour, date_vente__lt=fin_jour, statut=StatutTicket.VALIDE
+            )
             .values("company_id")
             .annotate(nombre=Count("id"), montant=Sum("prix"))
             .order_by()

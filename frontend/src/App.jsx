@@ -1,8 +1,9 @@
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext.jsx'
 import ProtectedRoute from './auth/ProtectedRoute.jsx'
-import { DASHBOARD_ROLES } from './auth/roles.js'
+import { DASHBOARD_ROLES, PAGES_ANNEXES } from './auth/roles.js'
 import LoginPage from './pages/LoginPage.jsx'
+import AuditPage from './pages/AuditPage.jsx'
 import DirectionDashboard from './pages/DirectionDashboard.jsx'
 import QhseDashboard from './pages/QhseDashboard.jsx'
 import ExploitationDashboard from './pages/ExploitationDashboard.jsx'
@@ -39,6 +40,7 @@ const PAGES = {
   '/dashboard/finance': FinanceDashboard,
   '/dashboard/juridique': JuridiqueDashboard,
   '/dashboard/plateforme': PlateformeDashboard,
+  '/audit': AuditPage,
 }
 
 export default function App() {
@@ -54,7 +56,7 @@ export default function App() {
               key={path}
               path={path}
               element={
-                <ProtectedRoute roles={DASHBOARD_ROLES[path]}>
+                <ProtectedRoute roles={DASHBOARD_ROLES[path] ?? PAGES_ANNEXES[path]}>
                   <Page />
                 </ProtectedRoute>
               }

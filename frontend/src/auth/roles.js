@@ -61,6 +61,12 @@ export const DASHBOARD_ROLES = {
   '/dashboard/plateforme': ['superadmin'],
 }
 
+// Pages accessibles en plus du tableau de bord propre à chaque poste (elles ne comptent pas dans « un tableau de
+// bord par rôle »). Le journal d'audit : traçabilité pour l'audit et la conformité, réservée à la direction et au QHSE.
+export const PAGES_ANNEXES = {
+  '/audit': ['pdg', 'secretaire_general', 'qhse', 'superadmin'],
+}
+
 // Repli pour un rôle inconnu du frontend (ex. rôle ajouté côté serveur) : la page générique
 // est ouverte à tout utilisateur connecté, sans quoi ProtectedRoute le renverrait vers elle-même.
 export function dashboardPathForRole(role) {

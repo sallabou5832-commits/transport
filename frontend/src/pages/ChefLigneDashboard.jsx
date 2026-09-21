@@ -6,6 +6,7 @@ import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
 import Jauge from '../components/Jauge.jsx'
 import Kpi from '../components/Kpi.jsx'
+import PlanificationDepart from '../components/PlanificationDepart.jsx'
 import {
   LABELS_DEPART,
   LABELS_VEHICULE,
@@ -53,7 +54,16 @@ export default function ChefLigneDashboard() {
 
   async function ouvrirReaffectation(depart) {
     setMessage({ type: '', texte: '' })
-    setReaffectation({ departId: depart.id, chargement: true, options: null, vehicule: '', chauffeur: '', erreur: '' })
+    setReaffectation({
+      departId: depart.id,
+      vendues: depart.places_vendues,
+      chargement: true,
+      options: null,
+      vehicule: '',
+      chauffeur: '',
+      heure: '',
+      erreur: '',
+    })
     try {
       const options = await apiFetch(`/departs/${depart.id}/remplacants-possibles/`)
       setReaffectation((r) => ({ ...r, chargement: false, options }))
@@ -66,6 +76,7 @@ export default function ChefLigneDashboard() {
     const corps = {}
     if (reaffectation.vehicule) corps.vehicule = Number(reaffectation.vehicule)
     if (reaffectation.chauffeur) corps.chauffeur = Number(reaffectation.chauffeur)
+    if (reaffectation.heure) corps.date_heure = new Date(reaffectation.heure).toISOString()
     if (Object.keys(corps).length === 0) return
     try {
       await apiFetch(`/departs/${reaffectation.departId}/`, { method: 'PATCH', body: corps })
@@ -74,6 +85,19 @@ export default function ChefLigneDashboard() {
       await recharger()
     } catch (err) {
       setReaffectation((r) => ({ ...r, erreur: err.message }))
+    }
+  }
+
+  async function supprimer(depart) {
+    // Correction d'une erreur de planning : le serveur refuse un départ qui a des tickets ou qui a démarré.
+    if (!window.confirm('Supprimer ce départ planifié ? Sa feuille de route sera supprimée aussi.')) return
+    setMessage({ type: '', texte: '' })
+    try {
+      await apiFetch(`/departs/${depart.id}/`, { method: 'DELETE' })
+      setMessage({ type: 'success', texte: 'Départ supprimé.' })
+      await recharger()
+    } catch (err) {
+      setMessage({ type: 'error', texte: err.message })
     }
   }
 
@@ -213,13 +237,22 @@ export default function ChefLigneDashboard() {
                       </td>
                       <td>
                         {modifiable && (
-                          <button
-                            type="button"
-                            className="button-secondary button-small"
-                            onClick={() => ouvrirReaffectation(depart)}
-                          >
-                            Réaffecter
-                          </button>
+                          <div className="button-row" style={{ margin: 0 }}>
+                            <button
+                              type="button"
+                              className="button-secondary button-small"
+                              onClick={() => ouvrirReaffectation(depart)}
+                            >
+                              Réaffecter
+                            </button>
+                            <button
+                              type="button"
+                              className="button-secondary button-small"
+                              onClick={() => supprimer(depart)}
+                            >
+                              Supprimer
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -264,7 +297,21 @@ export default function ChefLigneDashboard() {
                                       ))}
                                     </select>
                                   </label>
+                                  <label>
+                                    Nouvelle heure (décaler le départ)
+                                    <input
+                                      type="datetime-local"
+                                      value={reaffectation.heure}
+                                      onChange={(e) => setReaffectation({ ...reaffectation, heure: e.target.value })}
+                                    />
+                                  </label>
                                 </div>
+                                {reaffectation.heure && reaffectation.vendues > 0 && (
+                                  <Alert type="warning">
+                                    {reaffectation.vendues} ticket(s) déjà vendu(s) pour l’heure actuelle : prévenez les
+                                    voyageurs, aucun message n’est envoyé automatiquement.
+                                  </Alert>
+                                )}
                                 {reaffectation.options.vehicules.length === 0 && (
                                   <Alert type="warning">
                                     Aucun véhicule disponible pour ce créneau : pénurie à signaler au directeur des
@@ -276,7 +323,7 @@ export default function ChefLigneDashboard() {
                             <div className="button-row">
                               <button
                                 type="button"
-                                disabled={!reaffectation.vehicule && !reaffectation.chauffeur}
+                                disabled={!reaffectation.vehicule && !reaffectation.chauffeur && !reaffectation.heure}
                                 onClick={appliquer}
                               >
                                 Appliquer
@@ -296,6 +343,8 @@ export default function ChefLigneDashboard() {
           </table>
         </div>
       )}
+
+      <PlanificationDepart lignes={lignes} onPlanifie={recharger} />
     </Layout>
   )
 }

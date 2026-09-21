@@ -1,4 +1,3 @@
-import datetime
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -6,35 +5,34 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
-from django.utils.dateparse import parse_date
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from billetterie import reservations
-from billetterie.models import Depart, DepartStatut, ModePaiement, ReservationHorsLigne, Ticket
+from billetterie import planning, reservations
+from billetterie.models import Depart, DepartStatut, ModePaiement, ReservationHorsLigne, StatutTicket, Ticket
 from billetterie.permissions import (
     IsDispatchManagerAlways,
     IsDispatchManagerOrReadOnly,
     IsGuichetierOrAboveAlways,
     IsGuichetierOrAboveWrite,
 )
-from billetterie.serializers import CHAUFFEUR_ROLES, DepartSerializer, TicketSerializer
+from billetterie.serializers import DepartSerializer, TicketSerializer
+from core.dates import lire_date, lire_date_heure
 from core.mixins import CompanyScopedQuerysetMixin
-from core.models import Role, User
+from core.models import Role
 from core.permissions import IsSameCompany
 from core.serializers import nom_complet
 from notifications.services import notifier_vente_ticket
-from reseau.models import Vehicule, VehiculeStatut
+from personnel_roulant.models import FeuilleDeRoute
+from reseau.models import VehiculeStatut
 
 
 CLE_IDEMPOTENCE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 
-# Le modèle ne connaît pas la durée d'un trajet : un véhicule ou un chauffeur est considéré
-# comme pris s'il a un autre départ non terminé à moins de 8 heures de celui-ci.
-FENETRE_OCCUPATION = datetime.timedelta(hours=8)
+MOTIF_ANNULATION_MIN = 5
 
 
 class ConflitIdempotence(APIException):
@@ -96,30 +94,19 @@ class DepartViewSet(BilletterieViewSet):
         proche. Réservé aux rôles de planification (c'est un annuaire des chauffeurs libres).
         """
         depart = self.get_object()
-        proches = (
-            Depart.objects.filter(
-                company_id=depart.company_id,
-                date_heure__gte=depart.date_heure - FENETRE_OCCUPATION,
-                date_heure__lte=depart.date_heure + FENETRE_OCCUPATION,
-            )
-            .exclude(pk=depart.pk)
-            .exclude(statut=DepartStatut.TERMINE)
-        )
         vehicules = (
-            Vehicule.objects.filter(
-                company_id=depart.company_id,
-                statut=VehiculeStatut.DISPONIBLE,
-                capacite__gte=depart.places_vendues + depart.places_reservees,
+            planning.vehicules_disponibles(
+                depart.company_id,
+                depart.date_heure,
+                places_min=depart.places_vendues + depart.places_reservees,
+                exclure_depart_id=depart.pk,
             )
+            .filter(statut=VehiculeStatut.DISPONIBLE)  # remplacement : on ne propose que ce qui est prêt à rouler
             .exclude(pk=depart.vehicule_id)
-            .exclude(pk__in=proches.values("vehicule_id"))
         )
-        chauffeurs = (
-            User.objects.filter(company_id=depart.company_id, role__in=CHAUFFEUR_ROLES)
-            .exclude(pk=depart.chauffeur_id)
-            .exclude(pk__in=proches.values("chauffeur_id"))
-            .order_by("username")
-        )
+        chauffeurs = planning.chauffeurs_disponibles(
+            depart.company_id, depart.date_heure, exclure_depart_id=depart.pk
+        ).exclude(pk=depart.chauffeur_id)
         return Response(
             {
                 "depart": depart.id,
@@ -133,11 +120,130 @@ class DepartViewSet(BilletterieViewSet):
             }
         )
 
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="disponibilites",
+        permission_classes=[IsAuthenticated, IsDispatchManagerAlways],
+    )
+    def disponibilites(self, request):
+        """Véhicules et chauffeurs libres à une date et une heure données (`?date_heure=`, ISO 8601), pour planifier
+        un nouveau départ. `?places_min=` ne garde que les véhicules assez grands. Mêmes règles que la création."""
+        if request.user.company_id is None:
+            raise ValidationError("Un compte sans compagnie ne planifie pas de départ.")
+        date_heure = lire_date_heure(request.query_params.get("date_heure"))
+        if date_heure is None:
+            raise ValidationError({"date_heure": "Date et heure requises (format ISO 8601, ex. 2030-05-17T08:30)."})
+        try:
+            places_min = int(request.query_params.get("places_min") or 0)
+        except ValueError:
+            raise ValidationError({"places_min": "Nombre entier attendu."})
+
+        vehicules = planning.vehicules_disponibles(request.user.company_id, date_heure, places_min=places_min)
+        chauffeurs = planning.chauffeurs_disponibles(request.user.company_id, date_heure)
+        return Response(
+            {
+                "date_heure": date_heure,
+                "vehicules": [
+                    {"id": v.id, "immatriculation": v.immatriculation, "capacite": v.capacite, "statut": v.statut}
+                    for v in vehicules
+                ],
+                "chauffeurs": [{"id": c.id, "nom": nom_complet(c), "role": c.role} for c in chauffeurs],
+            }
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="planifier",
+        permission_classes=[IsAuthenticated, IsDispatchManagerAlways],
+    )
+    def planifier(self, request):
+        """Planifie un départ et sa feuille de route en une seule opération (tout ou rien) : le chauffeur voit sa
+        feuille dès la planification. Corps : ligne, vehicule, chauffeur, date_heure. Mêmes règles que POST /departs/."""
+        if request.user.company_id is None:
+            raise ValidationError("Un compte sans compagnie ne peut pas planifier de départ.")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            depart = serializer.save(company=request.user.company)
+            feuille = FeuilleDeRoute.objects.create(
+                depart=depart, chauffeur=depart.chauffeur, company=depart.company, heure_depart_prevue=depart.date_heure
+            )
+        return Response({**self.get_serializer(depart).data, "feuille_de_route": feuille.id}, status=201)
+
+    def perform_destroy(self, instance):
+        """Seul un départ planifié, sans ticket (même annulé) et dont la feuille n'a pas démarré se supprime : c'est
+        la correction d'une erreur de planning, pas un moyen d'effacer une vente ou un trajet."""
+        if instance.statut != DepartStatut.PLANIFIE:
+            raise ValidationError("Seul un départ planifié peut être supprimé.")
+        if instance.tickets.exists():
+            raise ValidationError(
+                "Ce départ a des tickets (même annulés) : il ne peut pas être supprimé. Modifiez son heure ou son véhicule."
+            )
+        with transaction.atomic():
+            feuille = FeuilleDeRoute.objects.filter(depart=instance).first()
+            if feuille is not None:
+                if feuille.heure_depart_reelle is not None:
+                    raise ValidationError("Ce départ a déjà démarré : il ne peut pas être supprimé.")
+                feuille.delete()
+            instance.delete()
+
 
 class TicketViewSet(BilletterieViewSet):
     queryset = Ticket.objects.select_related("depart", "depart__vehicule", "company", "vendu_par")
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, IsSameCompany, IsGuichetierOrAboveWrite]
+
+    # Un ticket vendu est une pièce de caisse : ni modification (un prix ne se « corrige » pas après encaissement),
+    # ni suppression, pour personne. Une erreur se corrige par une annulation tracée (`annuler`).
+    def _verrouille(self, request):
+        raise MethodNotAllowed(
+            request.method, detail="Un ticket vendu ne se modifie ni ne se supprime : utilisez l'annulation."
+        )
+
+    def update(self, request, *args, **kwargs):
+        self._verrouille(request)
+
+    def partial_update(self, request, *args, **kwargs):
+        self._verrouille(request)
+
+    def destroy(self, request, *args, **kwargs):
+        self._verrouille(request)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="annuler",
+        permission_classes=[IsAuthenticated, IsSameCompany, IsDispatchManagerAlways],
+    )
+    def annuler(self, request, pk=None):
+        """Annule un ticket (motif obligatoire) : la place est libérée, la vente sort des recettes, le ticket
+        reste visible avec l'auteur, la date et le motif. Réservé aux rôles de supervision : le guichetier qui a
+        vendu ne peut pas annuler sa propre vente."""
+        motif = str(request.data.get("motif", "")).strip()
+        if len(motif) < MOTIF_ANNULATION_MIN:
+            raise ValidationError(
+                {"motif": f"Indiquez le motif de l'annulation ({MOTIF_ANNULATION_MIN} caractères au moins)."}
+            )
+        ticket = self.get_object()
+        with transaction.atomic():
+            ticket = Ticket.objects.select_for_update().get(pk=ticket.pk)
+            if ticket.statut == StatutTicket.ANNULE:
+                raise ValidationError("Ce ticket est déjà annulé.")
+            depart = Depart.objects.select_for_update().get(pk=ticket.depart_id)
+
+            ticket.statut = StatutTicket.ANNULE
+            ticket.annule_par = request.user
+            ticket.annule_le = timezone.now()
+            ticket.motif_annulation = motif[:255]
+            ticket.save(update_fields=["statut", "annule_par", "annule_le", "motif_annulation"])
+
+            # Un départ terminé n'a plus de places à rendre : l'annulation (remboursement) reste possible.
+            if depart.statut != DepartStatut.TERMINE and depart.places_vendues > 0:
+                depart.places_vendues -= 1
+                depart.save(update_fields=["places_vendues"])
+        return Response(self.get_serializer(ticket).data)
 
     @staticmethod
     def _cle_idempotence(request):
@@ -296,8 +402,8 @@ class TicketViewSet(BilletterieViewSet):
     def cloture_caisse(self, request):
         user = request.user
         raw_guichetier_id = request.query_params.get("guichetier", user.id)
-        date_debut = parse_date(request.query_params.get("date_debut") or "")
-        date_fin = parse_date(request.query_params.get("date_fin") or "")
+        date_debut = lire_date(request.query_params.get("date_debut"))
+        date_fin = lire_date(request.query_params.get("date_fin"))
 
         if date_debut is None or date_fin is None:
             raise ValidationError(
@@ -314,16 +420,20 @@ class TicketViewSet(BilletterieViewSet):
                 "Vous ne pouvez consulter que votre propre clôture de caisse."
             )
 
-        base_qs = self.get_queryset().filter(
+        periode_qs = self.get_queryset().filter(
             vendu_par_id=guichetier_id,
             date_vente__date__gte=date_debut,
             date_vente__date__lte=date_fin,
         )
+        # Un ticket annulé n'est pas une recette : la caisse ne compte que les ventes valides, et déclare les
+        # annulations à part (l'argent correspondant a dû être rendu).
+        base_qs = periode_qs.filter(statut=StatutTicket.VALIDE)
 
         def totals(queryset):
             agg = queryset.aggregate(nombre=Count("id"), montant=Sum("prix"))
             return agg["nombre"] or 0, agg["montant"] or Decimal("0")
 
+        nombre_annules, montant_annules = totals(periode_qs.filter(statut=StatutTicket.ANNULE))
         nombre_tickets, montant_total = totals(base_qs)
         nombre_especes, montant_especes = totals(
             base_qs.filter(mode_paiement=ModePaiement.ESPECES)
@@ -341,5 +451,6 @@ class TicketViewSet(BilletterieViewSet):
                 "montant_total": montant_total,
                 "especes": {"nombre": nombre_especes, "montant": montant_especes},
                 "mobile_money": {"nombre": nombre_mobile, "montant": montant_mobile},
+                "annulations": {"nombre": nombre_annules, "montant": montant_annules},
             }
         )

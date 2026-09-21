@@ -11,6 +11,18 @@ class DepartAdmin(admin.ModelAdmin):
 
 @admin.register(Ticket)
 class TicketAdmin(admin.ModelAdmin):
-    list_display = ["depart", "passager_nom", "prix", "mode_paiement", "vendu_par", "date_vente", "company"]
-    list_filter = ["company", "mode_paiement"]
+    """Consultation seulement : un ticket vendu est une pièce de caisse, il ne s'ajoute, ne se modifie et ne se
+    supprime pas dans l'administration (pas même par un superadmin). Une erreur passe par l'annulation tracée."""
+
+    list_display = ["depart", "passager_nom", "prix", "mode_paiement", "statut", "vendu_par", "date_vente", "company"]
+    list_filter = ["company", "statut", "mode_paiement"]
     search_fields = ["passager_nom", "passager_telephone"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

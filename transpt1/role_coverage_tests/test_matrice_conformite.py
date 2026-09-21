@@ -18,6 +18,7 @@ RESTREINTS = {
     "/api/dashboard/qhse/": {"qhse"},
     "/api/dashboard/exploitation/": {"directeur_exploitation", "pdg", "secretaire_general"},
     "/api/dashboard/plateforme/": {"superadmin"},
+    "/api/audit/": {"pdg", "secretaire_general", "qhse", "superadmin"},
     "/api/synthese-financiere/?" + PERIODE: {"directeur_financier", "pdg", "secretaire_general", "superadmin"},
     "/api/dossiers-agents/agents-sans-dossier/": {"drh"},
     "/api/assurances/": {"responsable_juridique", "directeur_technique"},

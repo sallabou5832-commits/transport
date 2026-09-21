@@ -1,6 +1,8 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
+from billetterie import planning
 from core.models import Role
 from core.serializers import CompanySerializer, nom_complet
 from billetterie.models import Depart, DepartStatut, Ticket
@@ -40,17 +42,24 @@ class DepartSerializer(serializers.ModelSerializer):
         return nom_complet(obj.chauffeur)
 
     def update(self, instance, validated_data):
-        """Un changement de chauffeur suit sur la feuille de route pas encore démarrée : c'est
-        elle que le chauffeur consulte. Une feuille déjà transférée à un relais est laissée."""
-        ancien_chauffeur_id = instance.chauffeur_id
+        """Un changement de chauffeur ou d'heure suit sur la feuille de route pas encore démarrée : c'est elle que
+        le chauffeur consulte. Une feuille déjà transférée à un relais garde son chauffeur. Chaque feuille est
+        enregistrée une à une (et non par `update()` groupé) pour que le journal d'audit voie le changement."""
+        ancien_chauffeur_id, ancienne_heure = instance.chauffeur_id, instance.date_heure
         with transaction.atomic():
             depart = super().update(instance, validated_data)
-            if depart.chauffeur_id != ancien_chauffeur_id:
-                from personnel_roulant.models import FeuilleDeRoute
+            from personnel_roulant.models import FeuilleDeRoute
 
-                FeuilleDeRoute.objects.filter(
-                    depart=depart, chauffeur_id=ancien_chauffeur_id, heure_depart_reelle__isnull=True
-                ).update(chauffeur=depart.chauffeur)
+            for feuille in FeuilleDeRoute.objects.filter(depart=depart, heure_depart_reelle__isnull=True):
+                champs = []
+                if depart.chauffeur_id != ancien_chauffeur_id and feuille.chauffeur_id == ancien_chauffeur_id:
+                    feuille.chauffeur = depart.chauffeur
+                    champs.append("chauffeur")
+                if depart.date_heure != ancienne_heure:
+                    feuille.heure_depart_prevue = depart.date_heure
+                    champs.append("heure_depart_prevue")
+                if champs:
+                    feuille.save(update_fields=champs)
         return depart
 
     def validate_chauffeur(self, chauffeur):
@@ -78,18 +87,55 @@ class DepartSerializer(serializers.ModelSerializer):
                     {field_name: "N'appartient pas à votre compagnie."}
                 )
 
-        self._verifier_reaffectation(vehicule, chauffeur)
+        date_heure = attrs.get("date_heure") or getattr(self.instance, "date_heure", None)
+        self._verifier_reaffectation(vehicule, chauffeur, date_heure)
+        self._verifier_planning(vehicule, chauffeur, date_heure)
         return attrs
 
-    def _verifier_reaffectation(self, vehicule, chauffeur):
-        """Changer de véhicule ou de chauffeur n'a de sens que pour un départ planifié, et
+    def _verifier_planning(self, vehicule, chauffeur, date_heure):
+        """Un départ se planifie sur un véhicule et un chauffeur libres : ni immobilisé, ni déjà pris par un autre
+        départ proche. Ne contrôle que ce qui change (un départ existant garde son véhicule actuel)."""
+        depart = self.instance
+        exclure = depart.pk if depart else None
+        neuf = depart is None
+        vehicule_change = neuf or (vehicule is not None and vehicule.pk != depart.vehicule_id)
+        chauffeur_change = neuf or (chauffeur is not None and chauffeur.pk != depart.chauffeur_id)
+        heure_change = neuf or (date_heure is not None and date_heure != depart.date_heure)
+        erreurs = {}
+
+        if neuf and date_heure is not None and date_heure < timezone.now() - planning.TOLERANCE_DATE_PASSEE:
+            erreurs["date_heure"] = "Cette date est déjà passée."
+
+        def message(conflit, sujet, autre):
+            heure = timezone.localtime(conflit.date_heure).strftime("%d/%m à %H:%M")
+            return f"{sujet} déjà affecté au départ {conflit.ligne.nom} du {heure} : choisissez une autre heure ou {autre}."
+
+        if vehicule is not None and date_heure is not None and (vehicule_change or heure_change):
+            if vehicule_change and vehicule.statut in planning.STATUTS_VEHICULE_IMMOBILISES:
+                erreurs["vehicule"] = (
+                    f"Ce véhicule est immobilisé ({vehicule.get_statut_display().lower()}) : il ne peut pas être planifié."
+                )
+            else:
+                conflit = planning.depart_en_conflit(vehicule=vehicule, date_heure=date_heure, exclure_depart_id=exclure)
+                if conflit:
+                    erreurs["vehicule"] = message(conflit, "Ce véhicule est", "un autre véhicule")
+        if chauffeur is not None and date_heure is not None and (chauffeur_change or heure_change):
+            conflit = planning.depart_en_conflit(chauffeur=chauffeur, date_heure=date_heure, exclure_depart_id=exclure)
+            if conflit:
+                erreurs["chauffeur"] = message(conflit, "Ce chauffeur est", "un autre chauffeur")
+        if erreurs:
+            raise serializers.ValidationError(erreurs)
+
+    def _verifier_reaffectation(self, vehicule, chauffeur, date_heure=None):
+        """Changer de véhicule, de chauffeur ou d'heure n'a de sens que pour un départ planifié, et
         le nouveau véhicule doit contenir tous les voyageurs déjà enregistrés."""
         depart = self.instance
         if depart is None:
             return
         vehicule_change = vehicule is not None and vehicule.pk != depart.vehicule_id
         chauffeur_change = chauffeur is not None and chauffeur.pk != depart.chauffeur_id
-        if not (vehicule_change or chauffeur_change):
+        heure_change = date_heure is not None and date_heure != depart.date_heure
+        if not (vehicule_change or chauffeur_change or heure_change):
             return
         # `Depart.statut` reste « planifié » quand un chauffeur démarre sa feuille de route :
         # c'est donc aussi la feuille qui dit si le car est déjà parti.
@@ -100,7 +146,7 @@ class DepartSerializer(serializers.ModelSerializer):
         ).exists()
         if depart.statut != DepartStatut.PLANIFIE or deja_parti:
             raise serializers.ValidationError(
-                "Un départ déjà parti ou terminé ne peut plus changer de véhicule ni de chauffeur."
+                "Un départ déjà parti ou terminé ne peut plus changer de véhicule, de chauffeur ni d'heure."
             )
         if vehicule_change:
             deja_pris = depart.places_vendues + depart.places_reservees
@@ -129,8 +175,15 @@ class TicketSerializer(serializers.ModelSerializer):
             "mode_paiement",
             "vendu_par",
             "date_vente",
+            "statut",
+            "annule_par",
+            "annule_le",
+            "motif_annulation",
         ]
-        read_only_fields = ["company", "vendu_par", "date_vente"]
+        # Le statut ne se change que par l'action `annuler` : jamais à la création ni par une modification.
+        read_only_fields = [
+            "company", "vendu_par", "date_vente", "statut", "annule_par", "annule_le", "motif_annulation",
+        ]
 
     def validate_depart(self, depart):
         request = self.context["request"]

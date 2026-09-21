@@ -29,6 +29,7 @@ RESSOURCES = {
     "sinistres": "sinistre",
     "feuilles-de-route": "feuille",
     "ordres-reparation": "ordre",
+    "tickets": "ticket",
 }
 
 APPEL = re.compile(r"apiFetch\(\s*(`[^`]*`|'[^']*'|\"[^\"]*\")", re.S)
@@ -48,15 +49,27 @@ def _roles_par_route():
     }
 
 
+def _roles_annexes():
+    """Pages en plus du tableau de bord propre à chaque poste (ex. le journal d'audit)."""
+    texte = (FRONTEND / "auth" / "roles.js").read_text(encoding="utf-8")
+    bloc = _bloc(texte, "export const PAGES_ANNEXES", "\n}")
+    return {
+        route: re.findall(r"'([a-z_]+)'", roles) for route, roles in re.findall(r"'(/[a-z]+)':\s*\[(.*?)\]", bloc)
+    }
+
+
 def _pages_par_route():
     texte = (FRONTEND / "App.jsx").read_text(encoding="utf-8")
     bloc = _bloc(texte, "const PAGES = {", "\n}")
-    return dict(re.findall(r"'(/dashboard/[a-z]+)':\s*(\w+),", bloc))
+    return dict(re.findall(r"'(/[a-z/]+)':\s*(\w+),", bloc))
 
 
 def _appels(nom_page):
-    """[(méthode, chemin normalisé)] de tous les apiFetch d'une page ; `${…}` devient `{}`."""
+    """[(méthode, chemin normalisé)] de tous les apiFetch d'une page **et des composants qu'elle importe** (leurs
+    appels s'exécutent avec les droits du rôle qui voit la page) ; `${…}` devient `{}`."""
     texte = (FRONTEND / "pages" / f"{nom_page}.jsx").read_text(encoding="utf-8")
+    for composant in re.findall(r"from '\.\./components/(\w+)\.jsx'", texte):
+        texte += "\n" + (FRONTEND / "components" / f"{composant}.jsx").read_text(encoding="utf-8")
     appels = []
     for correspondance in APPEL.finditer(texte):
         chemin = re.sub(r"\$\{[^}]*\}", "{}", correspondance.group(1)[1:-1])
@@ -67,14 +80,17 @@ def _appels(nom_page):
 
 
 ROLES_PAR_ROUTE = _roles_par_route()
+ROLES_ANNEXES = _roles_annexes()
 PAGES_PAR_ROUTE = _pages_par_route()
-COUPLES = [(route, role) for route, roles in ROLES_PAR_ROUTE.items() for role in roles]
+COUPLES = [(route, role) for route, roles in {**ROLES_PAR_ROUTE, **ROLES_ANNEXES}.items() for role in roles]
 
 
 def _resoudre(chemin, monde_a):
     """Remplace les `{}` par des valeurs réelles : dates du jour, ou id de la donnée d'exemple."""
     aujourdhui = timezone.localdate().isoformat()
     chemin = chemin.replace("date_debut={}&date_fin={}", f"date_debut={aujourdhui}&date_fin={aujourdhui}")
+    chemin = chemin.replace("date_heure={}", "date_heure=2030-05-17T08:00")
+    chemin = chemin.replace("?{}", "")  # requête construite dynamiquement (ex. les filtres du journal d'audit)
 
     def id_de(correspondance):
         ressource = correspondance.group(1)
@@ -87,7 +103,7 @@ def _resoudre(chemin, monde_a):
 
 class TestCouvertureDesRoles:
     def test_chaque_route_a_une_page_et_inversement(self):
-        assert set(ROLES_PAR_ROUTE) == set(PAGES_PAR_ROUTE)
+        assert set(ROLES_PAR_ROUTE) | set(ROLES_ANNEXES) == set(PAGES_PAR_ROUTE)
 
     def test_chaque_role_a_exactement_un_tableau_de_bord(self):
         attribues = [role for roles in ROLES_PAR_ROUTE.values() for role in roles]

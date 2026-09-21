@@ -87,7 +87,8 @@ export default function ControleurDashboard() {
   const vehicule = depart ? vehiculesParId[depart.vehicule] : null
   const feuille = depart ? feuillesParDepart[depart.id] : null
 
-  const passagers = depart ? tickets.filter((t) => t.depart === depart.id) : []
+  // Un ticket annulé n'est plus un passager : la vérification de charge ne compte que les tickets valides.
+  const passagers = depart ? tickets.filter((t) => t.depart === depart.id && t.statut === 'valide') : []
   const recherchee = recherche.trim().toLowerCase()
   const passagersVisibles = passagers.filter(
     (t) => !recherchee || `${t.passager_nom} ${t.passager_telephone}`.toLowerCase().includes(recherchee),

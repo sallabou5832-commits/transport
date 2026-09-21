@@ -84,10 +84,11 @@ class TestCouvertureParRole:
         )
         assert creation.status_code == 201
 
+        # Un ticket vendu est verrouillé pour tous (voir test_tickets_verrouilles.py) : 405, quel que soit le rôle.
         modification = api_client.patch(
             f"/api/tickets/{monde_a['ticket'].id}/", {"passager_nom": "Nom corrigé"}
         )
-        assert modification.status_code == 200
+        assert modification.status_code == 405
 
         acces_autre_compagnie = api_client.post(
             "/api/tickets/",
@@ -168,10 +169,11 @@ class TestCouvertureParRole:
         )
         assert creation.status_code == 201
 
+        # Un ticket vendu est verrouillé pour tous (voir test_tickets_verrouilles.py) : 405, quel que soit le rôle.
         modification = api_client.patch(
             f"/api/tickets/{monde_a['ticket'].id}/", {"passager_nom": "Nom corrigé"}
         )
-        assert modification.status_code == 200
+        assert modification.status_code == 405
 
         acces_autre_compagnie = api_client.post(
             "/api/tickets/",

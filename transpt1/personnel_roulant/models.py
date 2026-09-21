@@ -24,6 +24,7 @@ class FeuilleDeRoute(models.Model):
 
     class Meta:
         ordering = ["-heure_depart_prevue"]
+        indexes = [models.Index(fields=["company", "heure_depart_prevue"], name="feuille_company_depart_prevu")]
 
     def __str__(self):
         return f"Feuille de route {self.depart} ({self.chauffeur})"
@@ -115,6 +116,7 @@ class Incident(models.Model):
 
     class Meta:
         ordering = ["-date"]
+        indexes = [models.Index(fields=["company", "statut", "date"], name="incident_company_statut_date")]
 
     def __str__(self):
         return f"Incident {self.type_incident} - {self.vehicule} ({self.gravite})"

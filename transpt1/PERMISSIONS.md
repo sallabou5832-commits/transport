@@ -47,11 +47,34 @@ fiche véhicule elle-même (immatriculation, capacité, statut initial).
 | Ressource | Lecture | Écriture |
 |---|---|---|
 | **Depart** (planification) | Tous les rôles de la compagnie | `chef_ligne`, `chef_gare`, `directeur_exploitation`, `secretaire_general`, `pdg` |
-| **Ticket** (vente) | Tous les rôles de la compagnie | `guichetier` et tout rôle qui lui est hiérarchiquement supérieur (`chef_ligne`, `chef_gare`, `directeur_exploitation`, `qhse`, `secretaire_general`, `pdg`) |
+| **Ticket** (vente) | Tous les rôles de la compagnie | **Création** : `guichetier` et tout rôle qui lui est hiérarchiquement supérieur (`chef_ligne`, `chef_gare`, `directeur_exploitation`, `qhse`, `secretaire_general`, `pdg`). **Aucune modification ni suppression, pour personne** (405). |
+| **Annulation d'un ticket** (`POST /tickets/{id}/annuler/`) | — | `chef_gare`, `chef_ligne`, `directeur_exploitation`, `secretaire_general`, `pdg` (et `superadmin`) uniquement. Le guichetier qui a vendu **ne peut pas** annuler sa propre vente. |
 | **Places restantes** (`/departs/{id}/places-restantes/`) | Tous les rôles de la compagnie | — (lecture seule) |
 | **Réservation de places hors ligne** (`/tickets/reserver-hors-ligne/`, POST/DELETE) | — | `guichetier` et les rôles qui lui sont supérieurs, pour leurs propres réservations uniquement |
 | **Clôture de caisse** (`/tickets/cloture-caisse/`) | `guichetier` (uniquement la sienne) et les rôles supérieurs (peuvent consulter celle de n'importe quel guichetier de la compagnie) | — (lecture seule) |
 | **Remplaçants possibles** (`/departs/{id}/remplacants-possibles/`) | `chef_ligne`, `chef_gare`, `directeur_exploitation`, `secretaire_general`, `pdg` (et `superadmin`) uniquement : c'est un annuaire des chauffeurs libres | — (lecture seule) |
+
+**Ticket verrouillé.** Un ticket vendu est une pièce de caisse : `PUT`, `PATCH` et `DELETE` répondent 405 à tous les
+rôles (et l'administration Django ne permet ni ajout, ni modification, ni suppression, superadmin compris). Une erreur
+se corrige par l'annulation : `motif` obligatoire (5 caractères au moins), un ticket ne s'annule qu'une fois. Elle
+garde le ticket (`statut = annule`, `annule_par`, `annule_le`, `motif_annulation`), **libère la place** (sauf sur un
+départ terminé, qui n'a plus de places à rendre) et **sort la vente des recettes** : recettes du jour de la direction,
+synthèse financière, vue plateforme et clôture de caisse ne comptent que les tickets valides ; la clôture déclare les
+annulations à part (`annulations`), l'argent correspondant devant être rendu. Le statut ne se choisit jamais à la vente.
+
+**Planification** (`chef_ligne`, `chef_gare`, `directeur_exploitation`, `secretaire_general`, `pdg`) :
+
+- `POST /departs/planifier/` (ligne, véhicule, chauffeur, date_heure) crée le départ **et** sa feuille de route en une
+  opération, tout ou rien ; mêmes règles que `POST /departs/` et `PATCH` :
+  - un véhicule `bloque_securite` ou `en_maintenance` ne se planifie pas ;
+  - ni le véhicule ni le chauffeur ne doivent avoir un autre départ non terminé à moins de 8 h (le modèle ne connaît
+    pas la durée d'un trajet) ;
+  - pas de date passée de plus d'une heure ; le chauffeur doit avoir un rôle de chauffeur de la compagnie.
+- `GET /departs/disponibilites/?date_heure=…[&places_min=]` propose les véhicules et chauffeurs libres à cette heure
+  (annuaire des chauffeurs : réservé à ces rôles ; agents désactivés exclus).
+- Changer l'heure d'un départ suit sur sa feuille de route pas encore démarrée.
+- `DELETE /departs/{id}/` : seulement un départ `planifie`, sans ticket (même annulé) et dont la feuille n'a pas
+  démarré ; sa feuille est supprimée avec lui. C'est la correction d'une erreur de planning, pas un moyen d'effacer un trajet.
 
 Le **nom du chauffeur** (`chauffeur_nom`) est exposé, en lecture seule, sur les départs, feuilles de route
 et incidents (lisibles par tous les rôles de la compagnie) : l'API n'a pas d'annuaire d'agents et les
@@ -177,6 +200,30 @@ tables `formation_*`, ne référencent aucun modèle métier et n'en importent a
 sont portées par les étapes elles-mêmes. Aucun ticket, départ, checklist, incident, pièce ou notification
 client n'est créé ou modifié par la formation, et rien de la formation n'apparaît dans les autres modules.
 Ces garanties sont vérifiées par `formation/tests/test_isolation.py`.
+
+## 8. Journal d'audit (`audit`)
+
+| Endpoint | Accès |
+|---|---|
+| `/audit/` (GET) | `pdg`, `secretaire_general`, `qhse` (le journal de **leur** compagnie) et `superadmin` (toutes) |
+
+Chaque création, modification et suppression d'un objet métier (tickets, départs, feuilles de route, checklists,
+incidents, ordres de réparation, sorties et stock de pièces, véhicules, gares, lignes, dossiers RH, assurances,
+sinistres, comptes, compagnies) laisse une entrée : **qui** (compte, nom et rôle copiés), **quoi** (action, objet),
+**quand**, **d'où** (adresse), et **ce qui a changé** (`{champ: [avant, après]}` ; l'état initial à la création,
+l'état supprimé à la suppression). Une annulation de ticket est tracée comme telle, avec son motif. Les connexions
+sont tracées aussi, réussies ou non (l'identifiant saisi, jamais le mot de passe). Le mot de passe d'un compte n'est
+jamais écrit : seule l'existence du changement l'est. Un compteur dérivé (places vendues) ne fait pas de bruit.
+
+- **Inaltérable** : ni modification ni suppression, ni par l'API, ni par l'administration (lecture seule, superadmin
+  compris), ni par l'ORM (une tentative lève `JournalImmuable`). Renforcement possible en base : retirer les droits
+  `UPDATE` et `DELETE` de l'utilisateur de l'application sur la table `audit_journalaudit`.
+- **Hors requête** (commande, migration, données de démonstration), l'acteur est « système ».
+- **Lecture paginée** (`?limit=` jusqu'à 200, 50 par défaut) et filtrable : `objet_type`, `objet_id`, `action`,
+  `acteur`, `date_debut`, `date_fin`.
+- Une panne d'écriture du journal n'empêche pas l'action métier mais est journalisée en erreur.
+- **Adresse** : la dernière entrée de `X-Forwarded-For` (celle que le proxy ajoute lui-même ; les précédentes viennent du
+  client). Le proxy doit **écraser** cet en-tête (voir `DEPLOIEMENT.md`).
 
 ---
 

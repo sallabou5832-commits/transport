@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     'dashboard',
     'notifications',
     'formation',
+    'audit',
 ]
 
 AUTH_USER_MODEL = 'core.User'
@@ -91,6 +92,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'audit.middleware.ContexteAuditMiddleware',  # après l'authentification : lit l'utilisateur de la session
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

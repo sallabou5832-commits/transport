@@ -5,7 +5,6 @@ from django.contrib.auth import get_user_model
 from django.db.models import Count, F, Sum
 from django.db.models.functions import TruncDate
 from django.utils import timezone
-from django.utils.dateparse import parse_date
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -13,7 +12,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from billetterie.models import ModePaiement, Ticket
+from billetterie.models import ModePaiement, StatutTicket, Ticket
+from core.dates import lire_date
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
 from core.permissions import IsSameCompany
@@ -93,16 +93,17 @@ class SyntheseFinanciereView(APIView):
 
     def get(self, request):
         user = request.user
-        date_debut = parse_date(request.query_params.get("date_debut") or "")
-        date_fin = parse_date(request.query_params.get("date_fin") or "")
+        date_debut = lire_date(request.query_params.get("date_debut"))
+        date_fin = lire_date(request.query_params.get("date_fin"))
 
         if date_debut is None or date_fin is None:
             raise ValidationError(
                 "Les paramètres date_debut et date_fin (format AAAA-MM-JJ) sont requis."
             )
 
+        # Seules les ventes valides sont des recettes : un ticket annulé (remboursé) n'en est pas une.
         tickets = Ticket.objects.filter(
-            date_vente__date__gte=date_debut, date_vente__date__lte=date_fin
+            date_vente__date__gte=date_debut, date_vente__date__lte=date_fin, statut=StatutTicket.VALIDE
         )
         if user.role != Role.SUPERADMIN:
             tickets = tickets.filter(company_id=user.company_id)
