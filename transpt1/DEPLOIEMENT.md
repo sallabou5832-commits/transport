@@ -42,6 +42,10 @@ un fichier `.env` **lisible par le seul compte du service** (`chmod 600`). Ne co
 | `DJANGO_STATIC_ROOT` | Où `collectstatic` rassemble les fichiers de l'administration (défaut : `staticfiles/` du projet). |
 | `DJANGO_LOG_LEVEL` | `WARNING` par défaut ; `INFO` pour plus de détails. Les erreurs 500 sont écrites sur la sortie d'erreur. |
 
+**Sauvegardes** — voir §3 : `BACKUP_DIR` (défaut `transpt1/sauvegardes/`, à placer sur un autre disque),
+`BACKUP_RETENTION_DAYS` (14), `BACKUP_MIN_KEEP` (3), `BACKUP_MAX_AGE_HOURS` (26), `BACKUP_POST_COMMAND` (envoi hors du serveur),
+`SAUVEGARDE_ADMIN_USER` / `SAUVEGARDE_ADMIN_PASSWORD` (rôle `CREATEDB` du test de restauration, dans un fichier à part).
+
 **Métier** (valeurs par défaut sensées) : `BILLETTERIE_QUOTA_HORS_LIGNE` (2 places réservées par guichetier et par
 départ ; 0 désactive la vente hors ligne garantie), `BILLETTERIE_RESERVATION_TTL_HEURES` (12),
 `BILLETTERIE_HORIZON_HORS_LIGNE_HEURES` (24).
@@ -57,10 +61,41 @@ réel n'est envoyé** tant que vous ne le passez pas explicitement à `False`.
       CREATE DATABASE transport_coord OWNER transport_coord_user ENCODING 'UTF8';
       ```
       En production, cet utilisateur n'a pas besoin du droit `CREATEDB` (il ne sert qu'aux tests).
-- [ ] **Sauvegardes** avant d'ouvrir aux utilisateurs : une sauvegarde quotidienne, gardée **hors du serveur** et chiffrée :
-      `pg_dump -Fc transport_coord > sauvegarde_$(date +%F).dump`.
-- [ ] **Tester une restauration** sur une base vide (`pg_restore -d <base> sauvegarde.dump`) : une sauvegarde qu'on n'a
-      jamais restaurée n'est pas une sauvegarde.
+
+### Sauvegardes automatiques — à installer **avant** d'ouvrir aux utilisateurs
+
+`python manage.py sauvegarde_base` fait une sauvegarde complète (`pg_dump -Fc`) dans `BACKUP_DIR`, **relit l'archive**
+(`pg_restore --list`) avant de la garder, écrit son empreinte SHA-256, supprime les sauvegardes de plus de
+`BACKUP_RETENTION_DAYS` jours (sans jamais descendre sous `BACKUP_MIN_KEEP` fichiers) et, si `BACKUP_POST_COMMAND` est
+renseignée, l'envoie hors du serveur. Les outils `pg_dump` / `pg_restore` doivent être installés (paquet
+`postgresql-client`), sinon indiquer leur chemin par `PG_DUMP` / `PG_RESTORE`. Le mot de passe passe par l'environnement
+(`PGPASSWORD`), jamais par la ligne de commande.
+
+- [ ] **Planifier la sauvegarde nocturne**
+      - Linux : copier `deploy/transport-coord-sauvegarde.service` et `.timer` dans `/etc/systemd/system/`, adapter les
+        chemins et l'utilisateur, puis `systemctl daemon-reload && systemctl enable --now transport-coord-sauvegarde.timer`.
+        `Persistent=true` rattrape une sauvegarde manquée pendant une extinction ; `systemctl list-timers` montre la prochaine.
+      - Windows : `schtasks /Create /TN "Transport Coord - sauvegarde" /SC DAILY /ST 02:30 /RU SYSTEM /TR "powershell
+        -NoProfile -ExecutionPolicy Bypass -File C:\transport\transpt1\deploy\sauvegarde-windows.ps1"`.
+- [ ] **Copie hors du serveur** (`BACKUP_POST_COMMAND`, ex. `rclone copy` vers un stockage distant, ou `scp`) : la commande
+      reçoit le chemin du fichier en dernier argument. Une sauvegarde sur le même disque que la base ne protège pas d'une panne
+      de ce disque, d'un vol ou d'un rançongiciel. **Chiffrer avant l'envoi** (les sauvegardes contiennent noms et numéros de
+      téléphone des voyageurs) : par exemple `rclone` avec un remote `crypt`, ou `age`/`gpg` dans un petit script.
+- [ ] **Surveiller** : `python manage.py etat_sauvegarde` sort en erreur (code 1) si la dernière sauvegarde a échoué ou date
+      de plus de `BACKUP_MAX_AGE_HOURS` heures (26 par défaut). À brancher sur votre supervision (Uptime Kuma, cron + mail…) :
+      une sauvegarde qui échoue en silence est pire qu'aucune, on ne s'en aperçoit qu'au moment d'en avoir besoin.
+- [ ] **Tester la restauration chaque semaine** : `python manage.py verifier_sauvegarde` restaure la dernière sauvegarde dans
+      une base temporaire, compare le nombre de tables avec la base vivante, vérifie les migrations, puis supprime la base.
+      Il faut un rôle PostgreSQL avec `CREATEDB` (celui de l'application ne l'a pas en production) : créez-en un réservé à
+      cet usage et donnez-le par `SAUVEGARDE_ADMIN_USER` / `SAUVEGARDE_ADMIN_PASSWORD` (voir
+      `deploy/transport-coord-verif-sauvegarde.service` et son `.timer` hebdomadaire).
+- [ ] **Faire une vraie répétition de restauration** une fois avant le pilote, sur une autre machine : installer le code,
+      `createdb`, `pg_restore --no-owner -d <base> sauvegarde.dump`, `manage.py check`, se connecter. Noter le temps qu'elle prend.
+
+**Restaurer après un incident** : arrêter le service applicatif ; `pg_restore --clean --if-exists --no-owner -d transport_coord
+<fichier>.dump` (ou créer une base neuve, restaurer dedans, puis changer `DB_NAME`) ; `manage.py migrate` (sans effet si le code est
+à la même version) ; relancer. Les données saisies depuis la dernière sauvegarde sont perdues : d'où une sauvegarde chaque nuit et, si
+l'activité le justifie, une seconde à midi (dupliquer le timer).
 
 ## 4. Premier lancement — dans cet ordre
 
@@ -96,11 +131,13 @@ Il n'existe pas d'écran métier pour ces saisies : l'administration Django est 
       (le formulaire refuse les mots de passe trop simples). Pas de compte partagé : les journaux et les scores sont par agent.
 - [ ] Rattacher chaque **chef de gare** à sa gare (champ « Chef » de la gare : un chef par gare).
 - [ ] **Planning du jour** : les **départs** (ligne, véhicule, chauffeur principal ou relais, date et heure) et leur
-      **feuille de route** (même chauffeur, heure de départ prévue) sont saisis dans « Départs » et « Feuilles de route ».
-      Aucune page du site ne permet de les créer : **c'est le principal manque du pilote** (voir « Limites connues »).
-      Le chauffeur ne voit que les feuilles de route **datées d'aujourd'hui**.
+      **feuille de route** se planifient **depuis le site**, par le chef de ligne ou la direction de l'exploitation
+      (« Planifier un départ » : le formulaire ne propose que les véhicules et chauffeurs réellement libres à cette heure,
+      et refuse un véhicule ou un chauffeur déjà affecté à un autre départ dans les 8 h). L'administration Django reste
+      possible mais ne fait pas ces vérifications. Le chauffeur ne voit que les feuilles de route **datées d'aujourd'hui**.
 - [ ] Départ d'un agent : décocher « Actif » dans son compte (ne le supprimez pas : ses actions passées restent
-      rattachées à lui). Un jeton déjà émis reste valable 30 minutes (accès), 1 jour au plus (rafraîchissement).
+      rattachées à lui). L'accès est coupé **immédiatement** : le serveur relit le compte à chaque requête, un jeton
+      déjà émis (accès comme rafraîchissement) est refusé dès la requête suivante. Il en va de même d'un changement de rôle.
 
 ## 5. Le proxy : Caddy (certificat Let's Encrypt automatique)
 
@@ -162,6 +199,16 @@ Django fait confiance à `X-Forwarded-Proto` pour savoir si la requête est en H
 joignable que par le proxy** : écoutez sur `127.0.0.1` (ou un réseau privé) et fermez le port 8000 au pare-feu.
 Sinon, un client peut atteindre Django directement en HTTP et prétendre être en HTTPS.
 
+**Le journal d'audit** enregistre l'adresse du client : la **dernière** entrée de `X-Forwarded-For`, c'est-à-dire celle
+qu'ajoute votre proxy (Caddy et nginx avec `$proxy_add_x_forwarded_for` le font ; les entrées précédentes viennent du
+client et sont falsifiables). Même règle que ci-dessus : si Django est joignable sans passer par le proxy, l'adresse
+enregistrée peut être inventée. Pour un pilote, vérifier dans « Journal d'audit » que les adresses affichées sont celles
+des agents et non celle du proxy (`127.0.0.1`).
+
+Le journal est en **ajout seulement** pour l'application (ni modification ni suppression, même depuis l'administration).
+Un administrateur de la base garde toutefois la main dessus : ne donnez pas à l'utilisateur PostgreSQL de l'application
+d'autres droits que ceux nécessaires, et gardez les sauvegardes hors du serveur (§3) pour pouvoir prouver l'historique.
+
 ## 7. Site web et application mobile
 
 **Site web**
@@ -172,14 +219,16 @@ Sinon, un client peut atteindre Django directement en HTTP et prétendre être e
 
 **Application mobile** (Android)
 
-- [ ] Compiler avec l'adresse de production : `flutter build apk --release --dart-define=API_BASE_URL=https://api.votre-domaine.ci/api`.
+- [ ] Compiler avec l'adresse de production : `flutter build apk --release --target-platform android-arm64 --dart-define=API_BASE_URL=https://api.votre-domaine.ci/api`.
       La version *release* refuse toute adresse `http://` (voir `mobile/README.md`).
-- [ ] **Signer avec une vraie clé avant de distribuer l'APK.** Aujourd'hui `mobile/android/app/build.gradle.kts` signe
-      la version release avec la **clé de débogage** (`TODO`) : Android n'accepte de mettre à jour une application
-      que si elle est signée par la même clé, et une clé de débogage n'est pas secrète. Créer un *keystore*
-      (`keytool -genkey -v -keystore transport.jks -keyalg RSA -keysize 2048 -validity 10000 -alias transport`), le
-      garder **hors du dépôt** (et sauvegardé : sa perte interdit toute mise à jour), puis configurer la signature
-      *release* (référence : documentation Flutter « Build and release an Android app »). **Ce réglage n'est pas fait.**
+- [ ] **La signature *release* est configurée** (`mobile/android/app/build.gradle.kts` lit `mobile/android/key.properties`,
+      ignoré par git, ainsi que le keystore `.jks`). Sans ce fichier, la compilation *release* **échoue volontairement** plutôt
+      que de signer avec la clé de débogage (publique). **Sauvegarder le keystore et `key.properties` hors de l'ordinateur** :
+      Android n'accepte une mise à jour que si elle est signée par la même clé, et sa perte oblige à faire désinstaller
+      l'application partout (avec les ventes hors ligne en attente). Vérifier chaque APK : `apksigner verify --print-certs`.
+      Détails, création de la clé sur une autre machine et protocole d'essai sur téléphones : `mobile/TEST_TELEPHONES.md`.
+- [ ] **Essayer l'APK sur au moins deux vrais téléphones** avant de le distribuer (`mobile/TEST_TELEPHONES.md`) : il n'a
+      **jamais été installé sur un appareil** à ce jour.
 - [ ] Le certificat HTTPS doit être émis par une autorité reconnue par Android (Let's Encrypt convient) : un
       certificat auto-signé est refusé, à raison.
 
@@ -214,7 +263,13 @@ curl -I https://app.votre-domaine.ci/dashboard/finance           # 200 : le site
 
 - **Mise à jour** : sauvegarde de la base → récupérer le code → `pip install -r requirements.txt` → `python manage.py
   migrate` → `python manage.py collectstatic --noinput` → redémarrer le service. Relire les migrations avant de les appliquer.
-- **Sauvegardes** : vérifier chaque semaine que le fichier du jour existe et n'est pas vide.
+- **Sauvegardes** : `manage.py etat_sauvegarde` branché sur la supervision (alerte si échec ou trop ancienne) ; restauration
+  de test chaque semaine (`verifier_sauvegarde`, §3) ; une répétition complète sur une autre machine avant le pilote.
+- **Journal d'audit** : consulté depuis le site (Direction, secrétariat général, QHSE). Il grossit avec l'activité : prévoir
+  d'en archiver les entrées de plus de 12 mois (export puis suppression par l'administrateur de la base — l'application
+  elle-même ne supprime jamais).
+- **Tickets** : un ticket vendu ne se modifie ni ne se supprime ; une erreur se corrige par **annulation motivée** (chef de
+  gare ou direction), tracée dans le journal, et sort des recettes.
 - **Secrets compromis** : changer `DJANGO_SECRET_KEY` (déconnecte tout le monde), les mots de passe de la base, les clés
   des fournisseurs de SMS ; désactiver les comptes concernés.
 - **Données personnelles** : la plateforme conserve nom et téléphone des voyageurs (tickets). Prévoir l'information
@@ -222,10 +277,13 @@ curl -I https://app.votre-domaine.ci/dashboard/finance           # 200 : le site
 
 ## Limites connues avant le pilote
 
-- **Pas d'écran pour planifier** les départs et les feuilles de route (administration Django uniquement, par le superadmin).
 - **Pas de limitation des essais de connexion dans l'application** (à faire au niveau du proxy, §5) ni d'authentification
   à deux facteurs ; les jetons de connexion du site web sont conservés dans le navigateur (`localStorage`).
 - **Un seul processus de cache** par instance : ne pas compter sur un cache partagé entre plusieurs machines.
 - **Aucune alerte en temps réel** : un incident déclaré apparaît sur les tableaux de bord (qui se rafraîchissent chaque
   minute) mais ne déclenche ni notification ni appel.
-- **Mobile** : jamais lancé sur un appareil, signature *release* à configurer (§7).
+- **Mobile** : l'APK *release* se compile et se signe, mais il n'a **jamais été lancé sur un appareil** : le protocole
+  d'essai (`mobile/TEST_TELEPHONES.md`) reste à exécuter sur de vrais téléphones. Le chauffeur ne peut pas encore démarrer ni
+  terminer sa feuille de route depuis le mobile (web uniquement).
+- **Listes non paginées** : les listes de l'API (tickets, départs, incidents…) renvoient tout ; à surveiller si une compagnie
+  dépasse quelques milliers de tickets par mois (le journal d'audit, lui, est paginé).

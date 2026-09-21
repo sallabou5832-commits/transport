@@ -184,10 +184,25 @@ CRUD complet, isolé par compagnie (`IsSameCompany`) :
 - `/api/lignes/` — `gare_depart`/`gare_arrivee` doivent appartenir à la même compagnie
 - `/api/vehicules/`
 
+## Journal d'audit, tickets verrouillés, sauvegardes
+
+- **Journal d'audit** (`audit/`, `GET /api/audit/`) : qui a fait quoi, quand, d'où, avec « avant → après » ; connexions
+  réussies et échecs comprises ; ajout seulement (aucune entrée ne se modifie ni ne se supprime, même depuis
+  l'administration). Voir `PERMISSIONS.md` §8.
+- **Tickets** : un ticket vendu ne se modifie ni ne se supprime ; une erreur se corrige par
+  `POST /api/tickets/<id>/annuler/` avec un motif (chef de gare, chef de ligne, direction).
+- **Planification** : `GET /api/departs/disponibilites/?date_heure=…` (véhicules et chauffeurs libres) puis
+  `POST /api/departs/planifier/` (départ + feuille de route d'un coup).
+- **Sauvegardes** : `python manage.py sauvegarde_base` (à planifier chaque nuit), `verifier_sauvegarde` (restauration réelle
+  dans une base temporaire, chaque semaine), `etat_sauvegarde` (code de sortie 1 si échec ou trop ancienne : à brancher sur la
+  supervision). Réglages `BACKUP_*` dans `.env.example`, modèles de planification dans `deploy/`, procédure complète dans
+  `DEPLOIEMENT.md` §3.
+
 ## Pilote
 
-- `../SCENARIO_PILOTE.md` : scénario de test de bout en bout (guichetier, chauffeur, incident, atelier, PDG), à jouer
-  à la main dans le navigateur ; rejouable par l'API avec `pytest role_coverage_tests/test_scenario_pilote.py`.
+- `../SCENARIO_PILOTE.md` : scénario de test de bout en bout (guichetier, chauffeur, incident, atelier, PDG, puis annulation,
+  planification et journal d'audit), à jouer à la main dans le navigateur ; le parcours nominal est rejouable par l'API avec
+  `pytest role_coverage_tests/test_scenario_pilote.py`.
 - `DEPLOIEMENT.md` : checklist de déploiement (variables d'environnement, migrations, premier lancement, proxy,
   sauvegardes, notifications) et limites connues avant le pilote.
 - `PERMISSIONS.md` : qui peut voir et faire quoi, par rôle (fait foi).

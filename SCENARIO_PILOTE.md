@@ -163,14 +163,67 @@ mobile : voir `mobile/README.md` §6.
 
 Cette variante est couverte par un test automatique de l'API (voir ci-dessous) ; elle n'a pas été rejouée au navigateur.
 
+## Variante B — Corriger une erreur de vente (annulation d'un ticket)
+
+Un ticket vendu **ne se modifie ni ne se supprime** (aucun rôle) : une erreur se corrige par une annulation motivée.
+À jouer après l'étape 1.
+
+1. `guichetier_stc` : vendre un ticket « Client Erreur », 4 000 FCFA, espèces → « Ticket vendu à Client Erreur. », jauge
+   **2 / 70 places**.
+2. `chef_gare_stc` (`/dashboard/gare`) : sur le départ, cliquer « Tickets (2) ». Le bouton « Annuler le ticket » reste
+   **grisé** tant que le motif fait moins de 5 caractères (« abc » : grisé ; « Erreur de saisie du prix » : actif).
+3. Cliquer « Annuler le ticket ».
+
+**Attendu**
+- « **Ticket de Client Erreur annulé : la place est libérée et la vente sort des recettes.** » ; la ligne passe à
+  « Annulé » avec le motif et l'heure ; la jauge revient à **1 / 70 places**. Le guichetier voit aussi 1 / 70.
+- Les recettes du jour de la direction, la clôture de caisse et la synthèse financière ne comptent plus les 4 000 FCFA
+  (vérifié par les tests de l'API, pas rejoué au navigateur). Le contrôleur (`controleur_stc`) ne doit plus lister ce
+  passager parmi les tickets valides (à vérifier à la main : non rejoué au navigateur).
+- Journal d'audit (variante D) : une ligne « **Annulation — Ticket** » signée du chef de gare, avec `statut valide → annule`
+  et le motif.
+
+## Variante C — Planifier, décaler et supprimer un départ
+
+`chef_ligne_stc` (`/dashboard/ligne`, carte « Planifier un départ ») ; `directeur_exploitation_stc` dispose du même formulaire.
+
+1. Choisir la ligne et une date et heure de départ (demain 06:00). Avant l'heure, les listes « Véhicule » et « Chauffeur »
+   sont **grisées** (« Choisissez d'abord l'heure ») et le bouton « Planifier le départ » aussi.
+2. Une fois l'heure choisie, seuls les véhicules et chauffeurs **libres à cette heure** sont proposés (véhicule ni bloqué ni
+   en maintenance, aucun autre départ dans les 8 h). Choisir un véhicule et un chauffeur, « Planifier le départ ».
+3. Refaire le formulaire pour la **même heure**, puis 3 h plus tard, puis le surlendemain.
+
+**Attendu**
+- « **Départ planifié : la feuille de route du chauffeur est créée.** » ; le départ apparaît dans le tableau, « Planifié ».
+- Le véhicule et le chauffeur qu'on vient d'affecter **ne sont plus proposés** pour la même heure ni 3 h plus tard ; ils
+  **reviennent** le surlendemain. (Sur la base de démonstration, le 21/09/2026 : 3 véhicules libres à 06:00, 2 après
+  l'affectation ; les listes exactes dépendent des départs déjà planifiés.)
+- « Réaffecter » → nouvelle heure → « Appliquer » : « Départ réaffecté. » ; la ligne du tableau change d'heure.
+- Sur un départ qui a **déjà des tickets**, choisir une nouvelle heure affiche l'avertissement « N ticket(s) déjà vendu(s)
+  pour l'heure actuelle : prévenez les voyageurs, aucun message n'est envoyé automatiquement. ». « Supprimer » y est
+  **refusé** (« Ce départ a des tickets (même annulés) : il ne peut pas être supprimé. »).
+- « Supprimer » un départ **sans ticket** : le départ et sa feuille de route disparaissent.
+
+## Variante D — Le journal d'audit
+
+`pdg_stc`, `secretaire_general_stc`, `qhse_stc` (et `superadmin_demo`) : lien « **Journal d'audit** » dans la barre du haut
+(`/audit`). Les autres rôles ne voient pas ce lien, et l'adresse directe les renvoie à leur tableau de bord.
+
+**Attendu** : une ligne par action — date, acteur (nom et rôle), action, objet, changements « avant → après », adresse.
+Après les variantes B et C : « Annulation — Ticket », « Création », « Modification » (`date_heure` ancienne → nouvelle) et
+« Suppression » de départ, par le bon acteur ; les connexions y figurent aussi. Aucun mot de passe ni empreinte n'apparaît.
+Filtres par type d'objet, action et dates ; « Charger plus » ajoute 50 lignes (50 → 100 sur 310 dans l'essai).
+
+Les variantes B, C et D ont été jouées dans un vrai navigateur (21/09/2026, base de démonstration neuve), à l'exception des
+points signalés « non rejoué » : aucune erreur JavaScript, aucune réponse refusée hormis le refus volontaire de suppression.
+
 ## Ce que ce scénario ne couvre pas
 
 - **Le mobile** : l'application n'a pas été lancée sur un téléphone (aucun émulateur possible sur la machine de
   développement). Côté chauffeur, elle n'affiche que la feuille de route : checklist, départ et incident se font sur
-  le web. Un APK de débogage est produit par `flutter build apk --debug`.
-- **La création des départs et des feuilles de route** : aucune page ne le permet. Avant le pilote, ils sont saisis
-  dans l'administration Django (`/admin/`, modèles « Départs » et « Feuilles de route ») ; voir `transpt1/DEPLOIEMENT.md`.
+  le web. L'APK *release* est compilé et signé, mais **jamais installé** : voir `mobile/TEST_TELEPHONES.md`.
 - **Les envois réels de SMS et WhatsApp** (mode simulation), **le paiement mobile money réel**, **le vocal**.
+- **L'avertissement des voyageurs quand un départ vendu est décalé** : aucun message automatique (avertissement à l'écran seulement).
 
 ## Rejouer automatiquement
 
@@ -180,5 +233,6 @@ pytest role_coverage_tests/test_scenario_pilote.py
 ```
 
 Ces tests jouent le parcours nominal (étapes 1 à 7) et la variante A par l'API, chaque étape avec le compte du rôle
-concerné. Ils ne remplacent pas le passage à la main dans le navigateur, mais échouent si une permission ou une règle
+concerné. Les variantes B, C et D ont leurs propres tests : `role_coverage_tests/test_tickets_verrouilles.py` (annulation),
+`billetterie/tests/test_planification.py` (planification) et `audit/tests/` (journal). Ils ne remplacent pas le passage à la main dans le navigateur, mais échouent si une permission ou une règle
 métier casse le parcours.

@@ -48,9 +48,9 @@ hachage de mot de passe de production coûte quelques secondes par utilisateur).
 |---|---|---|
 | `pdg_stc`, `secretaire_general_stc` | pdg, secrétaire général | `direction` : recettes, ponctualité, statut des gares, courbe de recettes |
 | `qhse_stc` | qhse | `qhse` : incidents ouverts (action « marquer traité »), véhicules bloqués, défauts de checklist |
-| `directeur_exploitation_stc` | directeur d'exploitation | `exploitation` : gares, lignes, ponctualité, départs en retard, flotte, incidents graves |
-| `chef_gare_stc` | chef de gare | `gare` : départs de sa gare |
-| `chef_ligne_stc` | chef de ligne | `ligne` : santé de la ligne, départs, réaffectation véhicule/chauffeur |
+| `directeur_exploitation_stc` | directeur d'exploitation | `exploitation` : gares, lignes, ponctualité, départs en retard, flotte, incidents graves ; **planifier un départ** |
+| `chef_gare_stc` | chef de gare | `gare` : départs de sa gare, tickets de chaque départ, **annulation motivée d'un ticket** |
+| `chef_ligne_stc` | chef de ligne | `ligne` : santé de la ligne, départs, **planifier un départ**, réaffecter (véhicule, chauffeur, heure), supprimer un départ planifié |
 | `guichetier_stc` | guichetier | `guichetier` : vente de ticket |
 | `bagagiste_stc` | bagagiste | `bagagiste` : départs à charger (pas de module colis côté serveur) |
 | `chauffeur_stc`, `chauffeur2_stc`, `chauffeur3_stc`, `chauffeur_relais_stc` | chauffeurs | `chauffeur` : feuille de route du jour |
@@ -69,6 +69,18 @@ multi-compagnie et alimentent la vue plateforme.
 
 Chaque rôle a exactement un tableau de bord (`src/auth/roles.js`). La page générique
 (`/dashboard/generique`) ne sert plus que de repli pour un rôle inconnu du frontend.
+
+**Pages annexes** (`PAGES_ANNEXES` dans `roles.js`, en plus du tableau de bord) : `/audit`, le **journal d'audit**
+(qui a fait quoi, quand, d'où ; filtres par objet, action et dates ; pagination « Charger plus »), réservé au PDG, au
+secrétaire général, au QHSE et au superadmin. Son lien apparaît dans la barre du haut pour ces rôles seulement.
+
+**Planifier un départ** (`components/PlanificationDepart.jsx`, chef de ligne et directeur d'exploitation) : une fois la
+date et l'heure choisies, le formulaire ne propose que les véhicules et chauffeurs **libres** à cette heure (pas d'autre
+départ dans les 8 h, véhicule ni bloqué ni en maintenance) ; le serveur applique les mêmes règles à l'envoi et crée le
+départ **et** la feuille de route du chauffeur d'un seul coup.
+
+**Tickets** : un ticket vendu ne se modifie ni ne se supprime. Le chef de gare (ou la direction) l'**annule avec un
+motif** (5 caractères minimum) : la place est libérée, la vente sort des recettes et l'annulation est tracée.
 
 ## Ce que les tableaux de bord ne font pas encore
 
@@ -127,7 +139,7 @@ requête refusée, actions réelles sur les pages interactives).
 src/
 ├── api/                  # client.js : fetch authentifié (JWT + refresh) ; useChargement.js : chargement/rafraîchissement
 ├── auth/                 # contexte d'authentification, garde de route par rôle, table rôle → tableau de bord
-├── components/           # Layout, Jauge, Badge, Kpi, Barres, TuilesGares, Alert
+├── components/           # Layout, Jauge, Badge, Kpi, Barres, TuilesGares, Alert, PlanificationDepart
 ├── lib/                  # format.js (montants, dates, libellés), ponctualite.js (même règle que le serveur)
-└── pages/                # une page par tableau de bord + la page de connexion
+└── pages/                # une page par tableau de bord + la page de connexion + AuditPage (journal d'audit)
 ```
