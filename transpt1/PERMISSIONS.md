@@ -93,6 +93,18 @@ Règle métier : un défaut de checklist sur un item de sécurité bloque automa
 véhicule (`bloque_securite`) et empêche la feuille de route de démarrer, quel que soit le rôle
 qui a saisi la checklist.
 
+Règle métier : un item de checklist est unique par feuille de route. `POST /checklists/` sur un item déjà saisi
+(même nom, casse et espaces ignorés) met à jour l'existant (200) au lieu d'en créer un second : sinon un défaut de
+sécurité serait permanent, la feuille de route restant refusée tant qu'un défaut y figure, même après la réparation.
+Reprendre après un défaut suppose donc deux conditions : le véhicule est repassé `disponible` (clôture de l'ordre de
+réparation) ET l'item a été ressaisi « OK ».
+
+Règle métier : ce que fait le chauffeur se répercute sur les autres pôles. `POST /feuilles-de-route/{id}/demarrer/`
+passe le départ `planifie` à `en_cours` et un véhicule `disponible` à `en_ligne` ; `POST …/arriver/` passe le
+départ à `termine` (plus aucune vente dessus) et un véhicule `en_ligne` à `disponible`. Un véhicule devenu
+`en_maintenance` ou `bloque_securite` en route n'est pas remis `disponible` à l'arrivée. Un incident déclaré ne change
+pas, à lui seul, le statut du véhicule.
+
 ## 4. Maintenance (`maintenance`) — Piece, OrdreReparation, SortiePiece
 
 | Ressource | Lecture | Écriture |

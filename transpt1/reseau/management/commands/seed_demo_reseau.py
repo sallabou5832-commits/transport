@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from core.demo_garde import refuser_hors_developpement
 from core.models import Company
 from reseau.models import Gare, Ligne, Vehicule, VehiculeStatut
 
@@ -14,6 +15,7 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        refuser_hors_developpement("seed_demo_reseau")
         User = get_user_model()
 
         try:

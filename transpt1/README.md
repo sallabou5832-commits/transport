@@ -7,7 +7,7 @@ Logiciel web de coordination du personnel pour une compagnie de transport routie
 
 ## Prérequis
 
-- Python 3.11+
+- Python 3.12+ (exigé par Django 6.1)
 - PostgreSQL 14+ installé et démarré
 - pip
 
@@ -142,6 +142,9 @@ transpt1/
 
 ## Utilisateurs de démonstration
 
+Ces commandes créent des comptes au **mot de passe public** (dont un superadmin) : elles ne tournent que si
+`DJANGO_DEBUG=True` et sont refusées en production.
+
 ```bash
 python manage.py seed_demo_users
 python manage.py seed_demo_reseau        # nécessite seed_demo_users au préalable
@@ -180,3 +183,11 @@ CRUD complet, isolé par compagnie (`IsSameCompany`) :
   la gare dont il est `chef`, pas les autres gares de sa compagnie
 - `/api/lignes/` — `gare_depart`/`gare_arrivee` doivent appartenir à la même compagnie
 - `/api/vehicules/`
+
+## Pilote
+
+- `../SCENARIO_PILOTE.md` : scénario de test de bout en bout (guichetier, chauffeur, incident, atelier, PDG), à jouer
+  à la main dans le navigateur ; rejouable par l'API avec `pytest role_coverage_tests/test_scenario_pilote.py`.
+- `DEPLOIEMENT.md` : checklist de déploiement (variables d'environnement, migrations, premier lancement, proxy,
+  sauvegardes, notifications) et limites connues avant le pilote.
+- `PERMISSIONS.md` : qui peut voir et faire quoi, par rôle (fait foi).

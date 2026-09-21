@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -5,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from billetterie.models import DepartStatut
 from core.mixins import CompanyScopedQuerysetMixin
 from core.permissions import IsSameCompany
 from personnel_roulant.models import ChecklistDepart, FeuilleDeRoute, GraviteIncident, Incident
@@ -53,8 +55,18 @@ class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
                 "Un défaut de sécurité est signalé sur la checklist : la feuille de route ne peut pas démarrer."
             )
 
-        feuille.heure_depart_reelle = timezone.now()
-        feuille.save(update_fields=["heure_depart_reelle"])
+        depart, vehicule = feuille.depart, feuille.depart.vehicule
+        with transaction.atomic():
+            feuille.heure_depart_reelle = timezone.now()
+            feuille.save(update_fields=["heure_depart_reelle"])
+            # Le départ est en cours et le car en ligne : c'est ce que voient les régulateurs et la
+            # direction. Un véhicule bloqué ou en maintenance ne peut pas partir (refusé plus haut).
+            if depart.statut == DepartStatut.PLANIFIE:
+                depart.statut = DepartStatut.EN_COURS
+                depart.save(update_fields=["statut"])
+            if vehicule.statut == VehiculeStatut.DISPONIBLE:
+                vehicule.statut = VehiculeStatut.EN_LIGNE
+                vehicule.save(update_fields=["statut"])
         return Response(self.get_serializer(feuille).data)
 
     @action(detail=True, methods=["post"], url_path="arriver")
@@ -66,8 +78,16 @@ class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
         if feuille.heure_arrivee_reelle is not None:
             raise ValidationError("Cette feuille de route est déjà arrivée.")
 
-        feuille.heure_arrivee_reelle = timezone.now()
-        feuille.save(update_fields=["heure_arrivee_reelle"])
+        depart, vehicule = feuille.depart, feuille.depart.vehicule
+        with transaction.atomic():
+            feuille.heure_arrivee_reelle = timezone.now()
+            feuille.save(update_fields=["heure_arrivee_reelle"])
+            depart.statut = DepartStatut.TERMINE
+            depart.save(update_fields=["statut"])
+            # Le car redevient disponible, sauf s'il est tombé en panne ou a été bloqué en route.
+            if vehicule.statut == VehiculeStatut.EN_LIGNE:
+                vehicule.statut = VehiculeStatut.DISPONIBLE
+                vehicule.save(update_fields=["statut"])
         return Response(self.get_serializer(feuille).data)
 
 
@@ -75,6 +95,28 @@ class ChecklistDepartViewSet(PersonnelRoulantViewSet):
     queryset = ChecklistDepart.objects.select_related("feuille_de_route", "company")
     serializer_class = ChecklistDepartSerializer
     permission_classes = [IsAuthenticated, IsSameCompany, IsRoulantManagerOrReadOnly, IsOwnChecklist]
+
+    def create(self, request, *args, **kwargs):
+        """Un item est unique par feuille de route : le renvoyer met à jour l'existant.
+
+        Sans cela, un défaut de sécurité serait permanent : `FeuilleDeRoute.peut_demarrer` refuse tant
+        qu'il existe un défaut sur la feuille, et refaire la checklist après la réparation ne
+        ferait qu'ajouter des items « OK » à côté du défaut. Les contrôles (compagnie, feuille du
+        chauffeur) sont ceux du sérialiseur, exécutés avant.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        donnees = serializer.validated_data
+        existant = ChecklistDepart.objects.filter(
+            feuille_de_route=donnees["feuille_de_route"], item__iexact=donnees["item"].strip()
+        ).first()
+        if existant is None:
+            return super().create(request, *args, **kwargs)
+
+        existant.etat = donnees["etat"]
+        existant.commentaire = donnees.get("commentaire", "")
+        existant.save()  # un défaut de sécurité rebloque le véhicule (ChecklistDepart.save)
+        return Response(self.get_serializer(existant).data, status=200)
 
 
 class IncidentViewSet(PersonnelRoulantViewSet):

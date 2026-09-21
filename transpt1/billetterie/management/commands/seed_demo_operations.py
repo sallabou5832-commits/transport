@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from billetterie.models import Depart, DepartStatut, ModePaiement, Ticket
+from core.demo_garde import refuser_hors_developpement
 from core.models import Company
 from maintenance.models import OrdreReparation, Piece, StatutOrdreReparation
 from personnel_roulant.models import ChecklistDepart, EtatChecklist, FeuilleDeRoute
@@ -21,6 +22,7 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        refuser_hors_developpement("seed_demo_operations")
         User = get_user_model()
 
         try:
@@ -43,13 +45,17 @@ class Command(BaseCommand):
                 "Utilisateurs de démo introuvables. Lancez d'abord : python manage.py seed_demo_users"
             ) from exc
 
+        # Dans 3 h, mais toujours AUJOURD'HUI : la page du chauffeur ne liste que les feuilles de route
+        # du jour, un départ qui passerait à demain (commande lancée le soir) n'y apparaîtrait pas.
+        maintenant = timezone.now()
+        fin_de_journee = timezone.localtime(maintenant).replace(hour=23, minute=55, second=0, microsecond=0)
         depart, _ = Depart.objects.update_or_create(
             ligne=ligne,
             vehicule=vehicule,
             chauffeur=chauffeur,
             company=stc,
             defaults={
-                "date_heure": timezone.now() + datetime.timedelta(hours=3),
+                "date_heure": min(maintenant + datetime.timedelta(hours=3), fin_de_journee),
                 "statut": DepartStatut.PLANIFIE,
             },
         )

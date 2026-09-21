@@ -207,7 +207,9 @@ ventes en attente ont pu être perdues.
   déverrouillé entre de mauvaises mains.
 - **Android et iOS** : l'application est vérifiée par les tests, contre le vrai backend et dans Chrome, mais
   elle n'a pas été lancée sur un émulateur ni un téléphone dans cet environnement (aucune virtualisation
-  disponible). La compilation de l'APK (`flutter build apk --debug`) est en cours de validation. iOS n'a reçu
-  aucune configuration spécifique.
+  disponible). L'APK de débogage se compile (`flutter build apk --debug` : 153 Mo, trois architectures), mais il
+  n'a jamais été installé sur un appareil. iOS n'a reçu aucune configuration spécifique.
+- **Signature de la version release** : elle utilise encore la clé de débogage (`android/app/build.gradle.kts`).
+  Créez une vraie clé de signature, gardée hors du dépôt, avant de distribuer un APK (voir `transpt1/DEPLOIEMENT.md` §7).
 - Le chauffeur ne peut pas encore démarrer/terminer sa feuille de route, ni faire sa checklist depuis
   le mobile : ces actions du cahier des charges sont à ajouter (voir « Ajouter une action hors ligne »).

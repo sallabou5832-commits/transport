@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from billetterie.models import Depart, DepartStatut, ModePaiement, Ticket
+from core.demo_garde import refuser_hors_developpement
 from core.models import Company, Role
 from maintenance.models import OrdreReparation, StatutOrdreReparation
 from personnel_roulant.models import (
@@ -33,6 +34,7 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        refuser_hors_developpement("seed_demo_tableaux")
         User = get_user_model()
         try:
             stc = Company.objects.get(name="STC Voyages")

@@ -166,13 +166,43 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# `collectstatic` y rassemble les fichiers statiques (CSS de l'administration Django, seul moyen de
+# créer compagnies et utilisateurs) ; le reverse proxy les sert directement. Voir DEPLOIEMENT.md.
+STATIC_ROOT = config('DJANGO_STATIC_ROOT', default=str(BASE_DIR / 'staticfiles'))
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+# Le code n'envoie aucun e-mail (les clients sont prévenus par SMS / WhatsApp). En développement, les
+# e-mails éventuels s'affichent dans la console ; en production on ne force aucun backend de
+# développement (`manage.py check --deploy` le refuse) : Django utilise alors son SMTP par défaut.
+if DEBUG:
+    MAILERS = {
+        'default': {
+            'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        },
+    }
+
+
+# Journalisation
+#
+# Sans configuration, Django n'écrit AUCUNE erreur 500 quand DEBUG=False (elles ne partent que par
+# e-mail aux ADMINS) : on ne saurait jamais pourquoi une requête a échoué. Tout est donc envoyé sur la
+# sortie d'erreur, que le serveur WSGI ou systemd capture. DJANGO_LOG_LEVEL=INFO pour plus de détails.
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {'format': '{asctime} {levelname} {name} {message}', 'style': '{'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'simple'},
+    },
+    'root': {'handlers': ['console'], 'level': config('DJANGO_LOG_LEVEL', default='WARNING')},
+    'loggers': {
+        'django': {'handlers': ['console'], 'level': config('DJANGO_LOG_LEVEL', default='WARNING'), 'propagate': False},
     },
 }
 
