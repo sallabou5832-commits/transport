@@ -9,7 +9,10 @@ import '../data/quota_service.dart';
 import '../services.dart';
 import '../sync/action_handlers.dart';
 import '../sync/sync_service.dart';
+import '../voice/voice_form_session.dart';
+import '../voice/voice_text.dart';
 import 'formatters.dart';
+import 'voice_dictation_panel.dart';
 
 /// Vente d'un ticket. Fonctionne hors ligne : la vente est enregistrée sur le
 /// téléphone puis envoyée dès que le réseau revient (voir `SyncService`).
@@ -37,6 +40,12 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
   bool _busy = false;
   String? _error;
 
+  // Dictée vocale : voir `_demarrerVenteVocale`. Remplit les mêmes champs que la saisie
+  // tactile (rien n'est envoyé sans passer par `_submit`, avec la même validation).
+  VoiceFormSession? _voiceSession;
+  bool _voiceActive = false;
+  String? _voiceStatus;
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +54,7 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
 
   @override
   void dispose() {
+    _voiceSession?.dispose();
     _nom.dispose();
     _telephone.dispose();
     _prix.dispose();
@@ -129,6 +139,84 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
     }
   }
 
+  /// Remplit le formulaire par la voix (nom, téléphone, prix, mode de paiement), lit un
+  /// récapitulatif, puis valide comme le ferait le bouton tactile — seulement si
+  /// l'utilisateur dit « confirmer ». Le départ doit déjà être choisi (au clavier) : la
+  /// liste des départs n'est pas dictée.
+  ///
+  /// Mode secours : indisponibilité du moteur, erreur en cours de dictée, incompréhension
+  /// ou réponse « modifier » ramènent toutes à la saisie tactile normale, sans jamais
+  /// bloquer l'utilisateur (les champs déjà compris restent remplis, à corriger au besoin).
+  Future<void> _demarrerVenteVocale() async {
+    if (_busy || _voiceActive || _departId == null) return;
+    final session = VoiceFormSession();
+    setState(() {
+      _voiceActive = true;
+      _voiceSession = session;
+      _voiceStatus = 'Préparation de la reconnaissance vocale…';
+    });
+
+    var confirme = false;
+    try {
+      if (!await session.init()) {
+        _toast('Reconnaissance vocale indisponible sur cet appareil. Continuez avec le clavier.');
+        return;
+      }
+      if (!mounted) return;
+
+      setState(() => _voiceStatus = 'Dites le nom du voyageur…');
+      final nom = await session.ask('Dites le nom du voyageur.');
+      if (!mounted || nom == null) return;
+      setState(() => _nom.text = capitalizeWords(nom));
+
+      setState(() => _voiceStatus = 'Dites le numéro de téléphone…');
+      final telephone = await session.ask('Dites le numéro de téléphone du voyageur.');
+      if (!mounted || telephone == null) return;
+      setState(() => _telephone.text = extractDigitsOnly(telephone));
+
+      setState(() => _voiceStatus = 'Dites le prix…');
+      final prixDit = await session.ask('Dites le prix, en francs C F A.');
+      if (!mounted || prixDit == null) return;
+      final prix = extractNumber(prixDit);
+      if (prix != null) setState(() => _prix.text = prix);
+
+      setState(() => _voiceStatus = 'Dites le mode de paiement…');
+      final modeDit = await session.ask('Dites le mode de paiement : espèces, ou mobile money.');
+      if (!mounted) return;
+      final mode = modeDit == null ? null : parseModePaiement(modeDit);
+      if (mode != null) setState(() => _mode = mode);
+
+      setState(() => _voiceStatus = 'Récapitulatif…');
+      final recap = recapVenteTicket(
+        nom: _nom.text,
+        telephone: _telephone.text,
+        prix: _prix.text,
+        modePaiement: _mode,
+      );
+      final reponse = await session.ask(recap);
+      if (!mounted) return;
+      final intention = reponse == null ? VoiceIntent.inconnu : parseConfirmationIntent(reponse);
+      if (intention == VoiceIntent.confirmer) {
+        await session.say('Vente en cours d\'enregistrement.');
+        confirme = true;
+      } else {
+        await session.say('D\'accord, corrigez avec le clavier.');
+      }
+    } on Object {
+      if (mounted) _toast('La reconnaissance vocale a rencontré un problème. Continuez avec le clavier.');
+    } finally {
+      await session.dispose();
+      if (mounted) {
+        setState(() {
+          _voiceActive = false;
+          _voiceSession = null;
+          _voiceStatus = null;
+        });
+      }
+    }
+    if (confirme && mounted) await _submit();
+  }
+
   void _resetPassenger() {
     _nom.clear();
     _telephone.clear();
@@ -210,6 +298,15 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
                           padding: const EdgeInsets.only(top: 8),
                           child: _PlacesGaranties(restantes: quota.remainingFor(_departId!)),
                         ),
+                      const SizedBox(height: 16),
+                      VoiceDictationPanel(
+                        active: _voiceActive,
+                        status: _voiceStatus,
+                        enabled: !_busy && _departId != null,
+                        disabledHint: _departId == null ? 'Choisissez d\'abord un départ.' : null,
+                        onStart: _demarrerVenteVocale,
+                        onCancel: () => _voiceSession?.cancel(),
+                      ),
                       const SizedBox(height: 16),
                       TextFormField(
                         key: const Key('passager-nom'),

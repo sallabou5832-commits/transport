@@ -7,6 +7,7 @@ import '../auth/app_user.dart';
 import '../data/feuille_repository.dart';
 import '../data/loaded.dart';
 import '../services.dart';
+import 'checklist_depart_screen.dart';
 import 'formatters.dart';
 import 'user_header.dart';
 
@@ -143,6 +144,22 @@ class _FeuilleCard extends StatelessWidget {
               value: feuille.aDemarre
                   ? 'Parti à ${formatHeure(feuille.heureDepartReelle!)}'
                   : 'Pas encore parti',
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              key: const Key('checklist-avant-depart'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ChecklistDepartScreen(
+                    feuilleId: feuille.id,
+                    ligneNom: feuille.ligneNom,
+                    immatriculation: feuille.immatriculation,
+                  ),
+                ),
+              ),
+              icon: const Icon(Icons.checklist_outlined),
+              label: const Text('Remplir la checklist avant-départ'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
             ),
           ],
         ),

@@ -12,6 +12,7 @@ class PendingActionsScreen extends StatelessWidget {
 
   static String _title(PendingAction action) => switch (action.type) {
         ActionTypes.venteTicket => 'Vente de ticket : ${action.payload['passager_nom']}',
+        ActionTypes.checklistDepart => 'Checklist avant-départ',
         _ => action.type,
       };
 

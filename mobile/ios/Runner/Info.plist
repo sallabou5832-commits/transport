@@ -26,6 +26,14 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Commande vocale (vente de ticket, checklist avant-départ) : sans ces
+	     descriptions, iOS refuse la demande d'autorisation et la reconnaissance vocale
+	     échoue à l'initialisation ; l'application retombe alors sur la saisie tactile
+	     (voir lib/voice/). -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Le microphone permet de remplir certains écrans à la voix (vente de ticket, checklist avant-départ). La saisie au clavier reste toujours possible.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>La reconnaissance vocale sert à comprendre ce que vous dictez pour remplir certains formulaires. La saisie au clavier reste toujours possible.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

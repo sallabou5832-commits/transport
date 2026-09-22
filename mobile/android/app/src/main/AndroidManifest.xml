@@ -2,6 +2,10 @@
     <!-- Accès à l'API. Sans cette permission, une version release n'aurait aucun réseau
          (debug/profile la déclarent séparément, pour les outils de développement). -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Commande vocale (vente de ticket, checklist avant-départ) : sans elle, la
+         reconnaissance vocale échoue simplement à l'initialisation et l'application
+         retombe sur la saisie tactile (voir lib/voice/). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="Transport Coord"
         android:name="${applicationName}"
@@ -43,6 +47,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Requis à partir d'Android 11 (SDK 30) pour que l'application puisse voir le
+             service de reconnaissance vocale du téléphone (commande vocale, lib/voice/). -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>

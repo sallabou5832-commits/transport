@@ -40,6 +40,8 @@ dependencies:
   hive_ce_flutter: ^2.3.4
   flutter_secure_storage: ^11.2.0
   connectivity_plus: ^7.3.1
+  speech_to_text: ^7.5.0
+  flutter_tts: ^4.2.5
 
 dev_dependencies:
   flutter_test:
