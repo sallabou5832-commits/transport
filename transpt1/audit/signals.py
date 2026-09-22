@@ -31,6 +31,7 @@ REGISTRE = {
     "supports.DossierAgent": (),
     "supports.Assurance": (),
     "supports.Sinistre": (),
+    "tutelle.FluxTutelle": (),
     "core.User": ("last_login",),
     "core.Company": (),
 }

@@ -81,6 +81,7 @@ INSTALLED_APPS = [
     'notifications',
     'formation',
     'audit',
+    'tutelle',
 ]
 
 AUTH_USER_MODEL = 'core.User'

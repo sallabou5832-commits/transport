@@ -33,4 +33,5 @@ urlpatterns = [
     path('api/', include('dashboard.urls')),
     path('api/', include('formation.urls')),
     path('api/', include('audit.urls')),
+    path('api/', include('tutelle.urls')),
 ]
