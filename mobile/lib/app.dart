@@ -32,14 +32,17 @@ class _TransportAppState extends State<TransportApp> {
   void dispose() {
     _services.auth.removeListener(_onAuthChanged);
     _services.triggers.dispose();
+    _services.gps.dispose();
     super.dispose();
   }
 
-  /// À chaque changement d'utilisateur : recompte ses actions en attente et, une fois
-  /// connecté, envoie tout ce qui a été fait hors ligne.
+  /// À chaque changement d'utilisateur : recompte ses actions en attente, envoie une fois connecté
+  /// tout ce qui a été fait hors ligne, et démarre/arrête le suivi GPS s'il conduit (voir
+  /// `TripGpsController` : lui-même vérifie ensuite si un trajet est réellement en cours).
   void _onAuthChanged() {
     _services.sync.refreshCounts();
     if (_services.auth.status == AuthStatus.authenticated) _services.sync.syncNow();
+    _services.gps.onUserChanged(_services.auth.user);
   }
 
   @override

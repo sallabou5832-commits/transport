@@ -4,17 +4,19 @@ import 'string_box.dart';
 
 /// Base locale de l'appareil (Hive : Dart pur, fonctionne sur Android, iOS et web).
 ///
-/// Deux « boîtes » de texte JSON, **chiffrées en AES-256** :
-///  - `outbox` : les actions faites sans réseau, en attente d'envoi ;
-///  - `cache`  : les dernières données lues, pour rester consultable hors ligne.
-/// Elles contiennent les noms et téléphones des voyageurs : jamais en clair sur l'appareil.
+/// Trois « boîtes » de texte JSON, **chiffrées en AES-256** :
+///  - `outbox`    : les actions faites sans réseau, en attente d'envoi ;
+///  - `cache`     : les dernières données lues, pour rester consultable hors ligne ;
+///  - `positions` : les relevés GPS du trajet en cours, en attente d'envoi (voir `gps/`).
+/// `outbox` et `cache` contiennent les noms et téléphones des voyageurs : jamais en clair sur l'appareil.
 class LocalStore {
   static const _temoin = '__integrite__';
 
-  LocalStore._(this.outboxBox, this.cacheBox, {this.wasReset = false});
+  LocalStore._(this.outboxBox, this.cacheBox, this.positionsBox, {this.wasReset = false});
 
   final StringBox outboxBox;
   final StringBox cacheBox;
+  final StringBox positionsBox;
 
   /// Vrai si des données illisibles (clé de chiffrement perdue, fichier corrompu) ont dû
   /// être effacées à l'ouverture : des ventes en attente ont pu être perdues.
@@ -58,15 +60,17 @@ class LocalStore {
 
     final outbox = await open('${namespace}_outbox');
     final cache = await open('${namespace}_cache');
-    return LocalStore._(outbox, cache, wasReset: reset);
+    final positions = await open('${namespace}_positions');
+    return LocalStore._(outbox, cache, positions, wasReset: reset);
   }
 
   /// Stockage éphémère (tests d'écrans).
   factory LocalStore.memory({bool wasReset = false}) =>
-      LocalStore._(MemoryStringBox(), MemoryStringBox(), wasReset: wasReset);
+      LocalStore._(MemoryStringBox(), MemoryStringBox(), MemoryStringBox(), wasReset: wasReset);
 
   Future<void> close() async {
     await outboxBox.close();
     await cacheBox.close();
+    await positionsBox.close();
   }
 }

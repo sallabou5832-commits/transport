@@ -13,6 +13,9 @@ Ce qui est en place :
 - **Commande vocale (français)** sur la vente de ticket et la checklist avant-départ : parler pour
   remplir le formulaire, entendre un récapitulatif avant validation, avec repli sur la saisie
   tactile si la reconnaissance échoue ou est indisponible (voir « Commande vocale »).
+- **Suivi GPS du conducteur, y compris application en arrière-plan** : démarre et s'arrête tout seul
+  selon l'état réel du trajet côté serveur, échantillonné pour la batterie et le réseau (voir « Suivi
+  GPS »).
 - **Mode hors ligne** : stockage local **chiffré** (Hive, AES-256) et synchronisation automatique.
   La **vente de ticket** et la **checklist avant-départ** sont branchées ; les autres actions se
   greffent facilement (voir « Ajouter une action hors ligne »).
@@ -150,6 +153,7 @@ lib/
 ├── sync/                    Actions hors ligne et synchronisation
 ├── data/                    Lecture des données (feuille de route, départs) et places garanties
 ├── voice/                   Commande vocale : compréhension du texte reconnu, moteurs, conversation
+├── gps/                     Suivi GPS du conducteur : source de localisation, file d'attente, déclenchement
 └── ui/                      Écrans
 ```
 
@@ -248,6 +252,33 @@ l'écran bloqué sur un micro resté ouvert.
 (Android, `AndroidManifest.xml`) ; `NSMicrophoneUsageDescription` et
 `NSSpeechRecognitionUsageDescription` (iOS, `Info.plist`).
 
+## Suivi GPS
+
+Le suivi GPS du conducteur (`lib/gps/`) démarre et s'arrête **tout seul**, sans écran ni bouton dédié : il suit
+l'état réel du trajet côté serveur (`GET /suivi/moi/`, `en_cours`), vérifié toutes les 2 minutes
+(`TripGpsController`). Le trajet lui-même se démarre depuis le site ou l'administration (le mobile ne le fait
+pas encore, voir « Limites connues ») ; une fois démarré, le suivi mobile prend le relais tout seul à la
+prochaine vérification.
+
+**Continue en arrière-plan sur Android** : le suivi utilise le service de premier plan du paquet `geolocator`
+(notification persistante, requise par Android depuis la version 10 pour toute localisation hors premier plan),
+pas seulement quand l'application est ouverte à l'écran — contrairement au suivi GPS du site web, qui n'existe
+que page ouverte.
+
+**Échantillonnage** (batterie et réseau) : un relevé au plus toutes les 20 secondes, et seulement après 50 m
+parcourus — jamais un flux continu. Envoyés par lots (au plus 500 à la fois, comme le web) toutes les 45
+secondes ; un relevé perdu ou envoyé deux fois est sans conséquence (pas de clé d'idempotence, contrairement
+aux ventes).
+
+**Jamais bloquant** : permission refusée, service de localisation coupé, ou hors ligne — le suivi s'arrête ou ne
+démarre simplement pas, sans jamais empêcher le reste de l'application de fonctionner (même principe que la
+commande vocale).
+
+**Permissions natives** (Android uniquement ; iOS n'a reçu aucune configuration spécifique, voir « Limites
+connues ») : `ACCESS_FINE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE`,
+`FOREGROUND_SERVICE_LOCATION`, `POST_NOTIFICATIONS` (`AndroidManifest.xml`) ; le service de premier plan
+lui-même est déclaré par le paquet `geolocator_android`, rien à ajouter côté application.
+
 ## Limites connues (à traiter avant la mise en production)
 
 - **Places réservées = places immobilisées.** Tant qu'elles sont réservées, les autres guichets ne peuvent
@@ -268,8 +299,15 @@ l'écran bloqué sur un micro resté ouvert.
   par `apksigner`. **À sauvegarder hors de l'ordinateur** : sa perte interdit toute mise à jour des téléphones installés.
 - Le chauffeur ne peut pas encore démarrer/terminer sa feuille de route depuis le mobile (la checklist
   avant-départ, elle, est en place) : cette action du cahier des charges est à ajouter (voir « Ajouter
-  une action hors ligne »).
+  une action hors ligne »). C'est pour cela que le suivi GPS (voir « Suivi GPS ») se cale sur l'état du
+  trajet côté serveur plutôt que sur un bouton du mobile : il fonctionne dès aujourd'hui, quel que soit
+  l'endroit d'où le trajet a été démarré.
 - **Commande vocale** : première couche, en français uniquement, sur deux actions (voir « Commande
   vocale »). La compréhension du texte dicté est volontairement simple (mots-clés, pas de négation) :
   à étendre si l'usage sur le terrain le montre nécessaire. Non essayée sur un vrai téléphone dans cet
   environnement, pour la même raison que le reste de l'application (voir plus haut, « Android et iOS »).
+- **Suivi GPS** : le service de premier plan Android (voir « Suivi GPS ») n'a, comme le reste de
+  l'application, jamais tourné sur un appareil réel ni un émulateur dans cet environnement — en particulier,
+  le comportement des fabricants qui tuent agressivement les services d'arrière-plan (certains Android
+  chinois notamment) n'a pas pu être vérifié. À couvrir par le protocole d'essai sur téléphones
+  (`TEST_TELEPHONES.md`).

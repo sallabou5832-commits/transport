@@ -6,6 +6,18 @@
          reconnaissance vocale échoue simplement à l'initialisation et l'application
          retombe sur la saisie tactile (voir lib/voice/). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Suivi GPS du trajet (voir lib/gps/) : positions transmises tant qu'un trajet est en cours,
+         y compris application en arrière-plan (service de premier plan avec notification visible,
+         déclaré par le paquet geolocator_android — rien à ajouter ici pour lui). Refusées, ces
+         permissions font simplement échouer TripGpsController.ensurePermission() : pas de suivi,
+         jamais de blocage de l'application (voir lib/gps/trip_gps_controller.dart). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- Requise à partir d'Android 13 (SDK 33) pour la notification du service de premier plan. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="Transport Coord"
         android:name="${applicationName}"

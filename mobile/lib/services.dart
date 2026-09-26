@@ -1,10 +1,15 @@
 import 'api/api_client.dart';
+import 'api/api_exception.dart';
 import 'auth/auth_controller.dart';
 import 'auth/token_storage.dart';
 import 'config.dart';
 import 'data/depart_repository.dart';
 import 'data/feuille_repository.dart';
 import 'data/quota_service.dart';
+import 'gps/device_location_source.dart';
+import 'gps/location_source.dart';
+import 'gps/position_batcher.dart';
+import 'gps/trip_gps_controller.dart';
 import 'storage/cache_store.dart';
 import 'storage/encryption_key.dart';
 import 'storage/local_store.dart';
@@ -28,6 +33,7 @@ class AppServices {
     required this.feuilles,
     required this.departs,
     required this.connectivity,
+    required this.gps,
   }) : triggers = SyncTriggers(sync: sync, monitor: connectivity);
 
   factory AppServices.assemble({
@@ -35,6 +41,7 @@ class AppServices {
     required ApiClient api,
     required TokenStorage tokens,
     required ConnectivityMonitor connectivity,
+    LocationSource? location,
   }) {
     final cache = CacheStore(store.cacheBox);
     final outbox = Outbox(store.outboxBox);
@@ -62,6 +69,23 @@ class AppServices {
       feuilles: FeuilleRepository(api: api, cache: cache),
       departs: DepartRepository(api: api, cache: cache),
       connectivity: connectivity,
+      gps: TripGpsController(
+        verifierTrajetEnCours: () async {
+          try {
+            final reponse = await api.get('/suivi/moi/') as Map<String, dynamic>;
+            return reponse['en_cours'] == true;
+          } on ApiException {
+            return false; // Rôle sans trajet, ou session expirée : pas de suivi.
+          } on NetworkException {
+            return null; // État inconnu : ne pas couper un suivi en cours sur un accroc réseau.
+          }
+        },
+        location: location ?? DeviceLocationSource(),
+        batcher: PositionBatcher(
+          box: store.positionsBox,
+          envoyer: (lot) async => await api.post('/positions/', body: lot),
+        ),
+      ),
     );
   }
 
@@ -92,4 +116,5 @@ class AppServices {
   final DepartRepository departs;
   final ConnectivityMonitor connectivity;
   final SyncTriggers triggers;
+  final TripGpsController gps;
 }
