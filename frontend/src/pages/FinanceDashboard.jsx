@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { apiFetch } from '../api/client.js'
 import useChargement from '../api/useChargement.js'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import Kpi from '../components/Kpi.jsx'
 import Barres from '../components/Barres.jsx'
+import Tresorerie from '../components/Tresorerie.jsx'
 import { formatDate, formatFCFA, isoAujourdhui } from '../lib/format.js'
 
 const PERIODES = [
@@ -23,7 +25,12 @@ function exporterCsv(donnees) {
     lignes.push(['Mode de paiement', LABELS_MODE[m.mode] || m.mode, m.nombre_tickets, Number(m.montant_total)]),
   )
   donnees.par_jour.forEach((j) => lignes.push(['Jour', j.date, j.nombre_tickets, Number(j.montant_total)]))
-  lignes.push(['Total', '', donnees.total.nombre_tickets, Number(donnees.total.montant_total)])
+  lignes.push(['Total billets', '', donnees.total.nombre_tickets, Number(donnees.total.montant_total)])
+  donnees.fret.par_mode_paiement.forEach((m) =>
+    lignes.push(['Fret (colis et bagages)', LABELS_MODE[m.mode] || m.mode, m.nombre_colis, Number(m.montant_total)]),
+  )
+  lignes.push(['Total fret', '', donnees.fret.nombre_colis, Number(donnees.fret.montant_total)])
+  lignes.push(['Total général (billets + fret)', '', '', Number(donnees.total_general.montant_total)])
 
   // Séparateur « ; » et BOM UTF-8 : Excel en français ouvre alors le fichier directement, accents compris.
   const contenu =
@@ -61,6 +68,14 @@ export default function FinanceDashboard() {
 
   return (
     <Layout title="Tableau de bord — Finance">
+      <h2 className="section-title">Trésorerie</h2>
+      <Tresorerie />
+      <p className="muted">
+        Dépenses, budgets carburant, rentabilité par ligne et paiements aux fournisseurs : page{' '}
+        <Link to="/comptabilite">Comptabilité</Link>.
+      </p>
+
+      <h2 className="section-title">Recettes</h2>
       <div className="toolbar">
         <label>
           Période
@@ -99,7 +114,13 @@ export default function FinanceDashboard() {
             gares.
           </p>
           <div className="cards-grid">
-            <Kpi titre="Recettes" valeur={formatFCFA(total)} ton="vert" />
+            <Kpi titre="Recettes de billetterie" valeur={formatFCFA(total)} ton="vert" />
+            <Kpi
+              titre="Fret encaissé (colis et bagages)"
+              valeur={formatFCFA(data.fret.montant_total)}
+              detail={`${data.fret.nombre_colis} colis`}
+            />
+            <Kpi titre="Total encaissé" valeur={formatFCFA(data.total_general.montant_total)} ton="vert" />
             <Kpi titre="Tickets vendus" valeur={nombre.toLocaleString('fr-FR')} />
             <Kpi titre="Panier moyen" valeur={formatFCFA(nombre > 0 ? total / nombre : 0)} />
             <Kpi titre="Part du mobile money" valeur={`${partMobile} %`} />
@@ -140,11 +161,6 @@ export default function FinanceDashboard() {
               vide="Aucune vente sur cette période."
             />
           </section>
-
-          <Alert type="warning">
-            Budget carburant, coûts et rentabilité par ligne : non disponibles pour l&apos;instant, le serveur
-            n&apos;enregistre que les recettes de billetterie.
-          </Alert>
         </>
       )}
     </Layout>

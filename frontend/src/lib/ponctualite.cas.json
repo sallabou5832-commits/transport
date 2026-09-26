@@ -1,0 +1,10 @@
+[
+  { "cas": "parti pile à l'heure", "prevue": "2030-05-17T08:00:00Z", "reelle": "2030-05-17T08:00:00Z", "maintenant": "2030-05-17T12:00:00Z", "statut": "a_l_heure", "retard_minutes": 0 },
+  { "cas": "parti avec 10 minutes de retard : dans la tolérance", "prevue": "2030-05-17T08:00:00Z", "reelle": "2030-05-17T08:10:00Z", "maintenant": "2030-05-17T12:00:00Z", "statut": "a_l_heure", "retard_minutes": 10 },
+  { "cas": "parti avec 11 minutes de retard : en retard", "prevue": "2030-05-17T08:00:00Z", "reelle": "2030-05-17T08:11:00Z", "maintenant": "2030-05-17T12:00:00Z", "statut": "en_retard", "retard_minutes": 11 },
+  { "cas": "parti en avance", "prevue": "2030-05-17T08:00:00Z", "reelle": "2030-05-17T07:50:00Z", "maintenant": "2030-05-17T12:00:00Z", "statut": "a_l_heure", "retard_minutes": 0 },
+  { "cas": "pas encore parti, dans la tolérance", "prevue": "2030-05-17T08:00:00Z", "reelle": null, "maintenant": "2030-05-17T08:10:00Z", "statut": "en_attente", "retard_minutes": 10 },
+  { "cas": "pas encore parti, tolérance dépassée : déjà en retard", "prevue": "2030-05-17T08:00:00Z", "reelle": null, "maintenant": "2030-05-17T08:11:00Z", "statut": "en_retard", "retard_minutes": 11 },
+  { "cas": "pas encore parti, avant l'heure", "prevue": "2030-05-17T08:00:00Z", "reelle": null, "maintenant": "2030-05-17T07:00:00Z", "statut": "en_attente", "retard_minutes": 0 },
+  { "cas": "retard de plusieurs heures", "prevue": "2030-05-17T08:00:00Z", "reelle": "2030-05-17T11:07:00Z", "maintenant": "2030-05-17T12:00:00Z", "statut": "en_retard", "retard_minutes": 187 }
+]

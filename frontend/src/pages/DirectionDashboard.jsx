@@ -3,7 +3,10 @@ import useChargement from '../api/useChargement.js'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import Barres from '../components/Barres.jsx'
+import BesoinRenouvellement from '../components/BesoinRenouvellement.jsx'
+import CarteReseau from '../components/CarteReseau.jsx'
 import Kpi from '../components/Kpi.jsx'
+import Tresorerie from '../components/Tresorerie.jsx'
 import TuilesGares from '../components/TuilesGares.jsx'
 import {
   LABELS_GRAVITE,
@@ -57,6 +60,20 @@ export default function DirectionDashboard() {
           ton={jour.couleur === 'neutre' ? undefined : TON_COULEUR[jour.couleur]}
         />
         <Kpi
+          titre="Disponibilité de la flotte"
+          valeur={direction.disponibilite_flotte_pourcent === null ? '—' : `${direction.disponibilite_flotte_pourcent} %`}
+          detail="véhicules en état de rouler"
+          ton={
+            direction.disponibilite_flotte_pourcent === null
+              ? undefined
+              : direction.disponibilite_flotte_pourcent >= 80
+                ? 'vert'
+                : direction.disponibilite_flotte_pourcent >= 60
+                  ? 'orange'
+                  : 'rouge'
+          }
+        />
+        <Kpi
           titre="Pièces sous seuil d'alerte"
           valeur={direction.pieces_sous_seuil}
           ton={direction.pieces_sous_seuil > 0 ? 'orange' : 'vert'}
@@ -67,6 +84,14 @@ export default function DirectionDashboard() {
           ton={direction.assurances_echeance_proche > 0 ? 'orange' : 'vert'}
         />
       </div>
+
+      <h2 className="section-title">Trésorerie</h2>
+      <Tresorerie />
+
+      <h2 className="section-title">Carte du réseau en temps réel</h2>
+      <section className="card">
+        <CarteReseau />
+      </section>
 
       <h2 className="section-title">Statut des gares aujourd&apos;hui ({formatDate(exploitation.date)})</h2>
       <TuilesGares gares={exploitation.gares} />
@@ -109,6 +134,9 @@ export default function DirectionDashboard() {
           </ul>
         </section>
       </div>
+
+      <h2 className="section-title">Renouvellement de la flotte</h2>
+      <BesoinRenouvellement />
     </Layout>
   )
 }

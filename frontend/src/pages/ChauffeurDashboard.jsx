@@ -3,10 +3,24 @@ import { apiFetch } from '../api/client.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
+import CarnetDeRoute from '../components/CarnetDeRoute.jsx'
+import SuiviTrajet from '../components/SuiviTrajet.jsx'
 import { LABELS_GRAVITE, LABELS_TYPE_INCIDENT } from '../lib/format.js'
 
 const ITEMS_CHECKLIST = ['pneus', 'freins', 'carburant', 'eclairage', 'direction', 'ceintures']
 const INCIDENT_VIDE = { type_incident: 'panne', gravite: 'moyenne', description: '' }
+
+/** Position actuelle de l'appareil pour géolocaliser un signalement ; `null` si elle n'est pas disponible dans les 4 secondes. */
+function positionCourante() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null)
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ latitude: p.coords.latitude.toFixed(6), longitude: p.coords.longitude.toFixed(6) }),
+      () => resolve(null),
+      { timeout: 4000, maximumAge: 60000 },
+    )
+  })
+}
 
 function estAujourdhui(dateIso) {
   const date = new Date(dateIso)
@@ -90,9 +104,11 @@ export default function ChauffeurDashboard() {
     event.preventDefault()
     setMessageIncident({ type: '', texte: '' })
     try {
+      // Géolocalisation automatique : sans position de l'appareil, le serveur prend la dernière position connue du car.
+      const position = await positionCourante()
       await apiFetch('/incidents/', {
         method: 'POST',
-        body: { feuille_de_route: feuille.id, vehicule: feuille.vehicule, chauffeur: user.id, ...incident },
+        body: { feuille_de_route: feuille.id, vehicule: feuille.vehicule, chauffeur: user.id, ...incident, ...position },
       })
       setMessageIncident({
         type: 'success',
@@ -132,6 +148,8 @@ export default function ChauffeurDashboard() {
       <Alert>{error}</Alert>
       {!charge && !error && <p>Chargement…</p>}
       {charge && feuilles.length === 0 && !error && <p>Aucune feuille de route prévue aujourd'hui.</p>}
+
+      <SuiviTrajet />
 
       {feuilles.map((feuille) => {
         const messageDemarrageBrut = messageDemarrage[feuille.id] || ''
@@ -258,6 +276,9 @@ export default function ChauffeurDashboard() {
         {messageChecklist}
       </Alert>
       <Alert type={messageIncident.type || 'error'}>{messageIncident.texte}</Alert>
+
+      <h2 className="section-title">Papiers du véhicule et carnet de route</h2>
+      <CarnetDeRoute />
     </Layout>
   )
 }

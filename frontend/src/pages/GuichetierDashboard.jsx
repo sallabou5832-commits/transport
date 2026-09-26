@@ -3,6 +3,7 @@ import { apiFetch } from '../api/client.js'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import Jauge from '../components/Jauge.jsx'
+import CaissesDuJour from '../components/CaissesDuJour.jsx'
 
 const MODES_PAIEMENT = [
   { value: 'especes', label: 'Espèces' },
@@ -23,6 +24,8 @@ export default function GuichetierDashboard() {
   const [formError, setFormError] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // La caisse du jour se recharge après chaque vente (on change sa clé pour la remonter).
+  const [caisseCle, setCaisseCle] = useState(0)
 
   function chargerDonnees() {
     return Promise.all([apiFetch('/departs/'), apiFetch('/lignes/'), apiFetch('/vehicules/')]).then(
@@ -40,8 +43,13 @@ export default function GuichetierDashboard() {
 
   const lignesParId = Object.fromEntries(lignes.map((l) => [l.id, l]))
   const vehiculesParId = Object.fromEntries(vehicules.map((v) => [v.id, v]))
-  const departSelectionne = departs.find((d) => String(d.id) === departId)
+  // Une ligne fermée (route coupée, décision de la direction) ne vend plus de billet : ses départs ne sont plus proposés.
+  const departsVendables = departs.filter((d) => !lignesParId[d.ligne]?.est_fermee)
+  const departsMasques = departs.length - departsVendables.length
+  const departSelectionne = departsVendables.find((d) => String(d.id) === departId)
   const vehiculeSelectionne = departSelectionne ? vehiculesParId[departSelectionne.vehicule] : null
+  // Tarif de la ligne : imposé par le serveur, le guichetier n'a plus de prix à saisir.
+  const tarif = departSelectionne?.tarif ? Math.round(Number(departSelectionne.tarif)) : null
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -55,11 +63,12 @@ export default function GuichetierDashboard() {
           depart: Number(departId),
           passager_nom: passagerNom,
           passager_telephone: passagerTelephone,
-          prix,
+          ...(tarif === null ? { prix } : {}),
           mode_paiement: modePaiement,
         },
       })
       setConfirmation(`Ticket vendu à ${passagerNom}.`)
+      setCaisseCle((cle) => cle + 1)
       setPassagerNom('')
       setPassagerTelephone('')
       setPrix('')
@@ -74,6 +83,7 @@ export default function GuichetierDashboard() {
   return (
     <Layout title="Tableau de bord — Guichetier">
       <Alert>{loadError}</Alert>
+      <CaissesDuJour key={caisseCle} />
       <section className="card">
         <h2>Vente de ticket</h2>
         <form className="form" onSubmit={handleSubmit}>
@@ -81,12 +91,13 @@ export default function GuichetierDashboard() {
             Départ
             <select value={departId} onChange={(e) => setDepartId(e.target.value)} required>
               <option value="">— Choisir un départ —</option>
-              {departs.map((depart) => (
+              {departsVendables.map((depart) => (
                 <option key={depart.id} value={depart.id}>
                   {lignesParId[depart.ligne]?.nom} — {new Date(depart.date_heure).toLocaleString('fr-FR')}
                 </option>
               ))}
             </select>
+            {departsMasques > 0 && <span className="muted">{departsMasques} départ(s) non proposé(s) : ligne fermée.</span>}
           </label>
 
           {departSelectionne && (
@@ -116,13 +127,14 @@ export default function GuichetierDashboard() {
             />
           </label>
           <label>
-            Prix (FCFA)
+            {tarif === null ? 'Prix (FCFA)' : 'Prix (tarif de la ligne, FCFA)'}
             <input
               type="number"
               min="0"
               step="1"
-              value={prix}
+              value={tarif === null ? prix : tarif}
               onChange={(e) => setPrix(e.target.value)}
+              readOnly={tarif !== null}
               required
             />
           </label>

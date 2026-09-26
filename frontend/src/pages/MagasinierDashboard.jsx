@@ -1,19 +1,14 @@
-import { useEffect, useState } from 'react'
 import { apiFetch } from '../api/client.js'
+import useChargement from '../api/useChargement.js'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
+import DemandesPiecesMagasin from '../components/DemandesPiecesMagasin.jsx'
+import SuggestionsCommande from '../components/SuggestionsCommande.jsx'
 
 export default function MagasinierDashboard() {
-  const [pieces, setPieces] = useState([])
-  const [error, setError] = useState('')
+  const { data: pieces, error, recharger } = useChargement(() => apiFetch('/pieces/'), { intervalleMs: 60000 })
 
-  useEffect(() => {
-    apiFetch('/pieces/')
-      .then(setPieces)
-      .catch((err) => setError(err.message))
-  }, [])
-
-  const enAlerte = pieces.filter((p) => p.en_alerte)
+  const enAlerte = (pieces ?? []).filter((p) => p.en_alerte)
 
   return (
     <Layout title="Tableau de bord — Magasinier">
@@ -25,6 +20,10 @@ export default function MagasinierDashboard() {
         </Alert>
       )}
 
+      <DemandesPiecesMagasin onChange={recharger} />
+      <SuggestionsCommande />
+
+      <h2 className="section-title">Stock</h2>
       <table className="table">
         <thead>
           <tr>
@@ -36,7 +35,7 @@ export default function MagasinierDashboard() {
           </tr>
         </thead>
         <tbody>
-          {pieces.map((piece) => (
+          {(pieces ?? []).map((piece) => (
             <tr key={piece.id} className={piece.en_alerte ? 'row-alerte' : ''}>
               <td>{piece.nom}</td>
               <td>{piece.reference}</td>

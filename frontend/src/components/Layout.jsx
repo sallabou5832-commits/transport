@@ -1,6 +1,8 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { PAGES_ANNEXES, ROLE_LABELS, dashboardPathForRole } from '../auth/roles.js'
+import { LIBELLES_PAGES_ANNEXES, PAGES_ANNEXES, ROLE_LABELS, dashboardPathForRole } from '../auth/roles.js'
+import AlertesCloche from './AlertesCloche.jsx'
+import GamificationBandeau from './GamificationBandeau.jsx'
 
 export default function Layout({ title, children }) {
   const { user, logout } = useAuth()
@@ -21,8 +23,15 @@ export default function Layout({ title, children }) {
         <div className="topbar-user">
           <nav className="topbar-nav" aria-label="Navigation">
             <Link to={dashboardPathForRole(user?.role)}>Tableau de bord</Link>
-            {PAGES_ANNEXES['/audit'].includes(user?.role) && <Link to="/audit">Journal d&apos;audit</Link>}
+            {Object.entries(PAGES_ANNEXES)
+              .filter(([, roles]) => roles.includes(user?.role))
+              .map(([chemin]) => (
+                <Link key={chemin} to={chemin}>
+                  {LIBELLES_PAGES_ANNEXES[chemin]}
+                </Link>
+              ))}
           </nav>
+          <AlertesCloche />
           <span>
             {user?.first_name || user?.username} — {ROLE_LABELS[user?.role] || user?.role}
           </span>
@@ -31,6 +40,7 @@ export default function Layout({ title, children }) {
           </button>
         </div>
       </header>
+      <GamificationBandeau />
       <main className="content">{children}</main>
     </div>
   )

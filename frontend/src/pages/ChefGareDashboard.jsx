@@ -6,6 +6,11 @@ import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
 import Jauge from '../components/Jauge.jsx'
+import CaissesDuJour from '../components/CaissesDuJour.jsx'
+import DemandeLigne from '../components/DemandeLigne.jsx'
+import EquipeGare from '../components/EquipeGare.jsx'
+import MessagesGare from '../components/MessagesGare.jsx'
+import SanteGare from '../components/SanteGare.jsx'
 import { formatDateHeure, formatFCFA, indexParId } from '../lib/format.js'
 
 const STATUT_LABELS = { planifie: 'Planifié', en_cours: 'En cours', termine: 'Terminé' }
@@ -68,6 +73,17 @@ export default function ChefGareDashboard() {
       <Alert>{error}</Alert>
       <Alert type={message.type || 'error'}>{message.texte}</Alert>
       <h2>{gare.nom}</h2>
+
+      <SanteGare />
+
+      <h2 className="section-title">Caisses du jour de l&apos;équipe</h2>
+      <CaissesDuJour equipe />
+
+      <EquipeGare gare={gare} />
+
+      <MessagesGare />
+
+      <h2 className="section-title">Départs de la gare</h2>
 
       {departsDeLaGare.length === 0 ? (
         <p>Aucun départ prévu pour cette gare.</p>
@@ -184,6 +200,9 @@ export default function ChefGareDashboard() {
           </table>
         </div>
       )}
+
+      <h2 className="section-title">Fermer ou rouvrir une ligne</h2>
+      <DemandeLigne />
     </Layout>
   )
 }

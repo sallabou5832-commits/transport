@@ -5,6 +5,7 @@ import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
 import Jauge from '../components/Jauge.jsx'
+import ControleBillets from '../components/ControleBillets.jsx'
 import {
   LABELS_GRAVITE,
   LABELS_TYPE_INCIDENT,
@@ -100,6 +101,10 @@ export default function ControleurDashboard() {
       <Alert>{error}</Alert>
       <Alert type={message.type || 'error'}>{message.texte}</Alert>
 
+      <h2 className="section-title">Contrôle à bord</h2>
+      <ControleBillets />
+
+      <h2 className="section-title">Vérification de la charge et incidents</h2>
       <div className="toolbar">
         <label>
           Départ à contrôler
@@ -139,8 +144,8 @@ export default function ControleurDashboard() {
               )}
             </p>
             <p className="muted">
-              Le contrôle d&apos;un ticket déjà utilisé n&apos;est pas encore possible : le serveur n&apos;enregistre pas
-              la validation des tickets. Comparez la liste des passagers ci-dessous aux voyageurs à bord.
+              Les billets se vérifient un à un dans « Contrôle à bord » ci-dessus (un billet ne sert qu&apos;une fois).
+              Comparez aussi la liste des passagers ci-dessous aux voyageurs à bord.
             </p>
           </section>
 

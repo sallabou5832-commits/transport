@@ -4,7 +4,13 @@ import useChargement from '../api/useChargement.js'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
+import DossierSinistre from '../components/DossierSinistre.jsx'
 import Kpi from '../components/Kpi.jsx'
+import LitigesSociaux from '../components/LitigesSociaux.jsx'
+import ModelesJuridiquesGestion from '../components/ModelesJuridiquesGestion.jsx'
+import Onglets from '../components/Onglets.jsx'
+import ReportingJuridique from '../components/ReportingJuridique.jsx'
+import TableauConformite from '../components/TableauConformite.jsx'
 import {
   LABELS_TYPE_INCIDENT,
   formatDate,
@@ -18,6 +24,12 @@ const TON_SINISTRE = { ouvert: 'rouge', en_cours: 'orange', clos: 'vert' }
 const SEUIL_RENOUVELLEMENT_JOURS = 30
 const ASSURANCE_VIDE = { vehicule: '', compagnie_assurance: '', numero_police: '', date_echeance: '' }
 const SINISTRE_VIDE = { vehicule: '', incident: '', description: '' }
+const ONGLETS = [
+  { id: 'dossiers', label: 'Assurances et sinistres' },
+  { id: 'litiges', label: 'Litiges sociaux' },
+  { id: 'modeles', label: 'Modèles de documents' },
+  { id: 'synthese', label: 'Synthèse pour la Direction' },
+]
 
 function etatAssurance(assurance) {
   const jours = joursRestants(assurance.date_echeance)
@@ -27,6 +39,8 @@ function etatAssurance(assurance) {
 }
 
 export default function JuridiqueDashboard() {
+  const [onglet, setOnglet] = useState('dossiers')
+  const [sinistreOuvert, setSinistreOuvert] = useState(null)
   const [message, setMessage] = useState({ type: '', texte: '' })
   const [nouvelleAssurance, setNouvelleAssurance] = useState(ASSURANCE_VIDE)
   const [nouveauSinistre, setNouveauSinistre] = useState(SINISTRE_VIDE)
@@ -121,236 +135,263 @@ export default function JuridiqueDashboard() {
       <Alert>{error}</Alert>
       <Alert type={message.type || 'error'}>{message.texte}</Alert>
 
-      <div className="cards-grid">
-        <Kpi titre="Assurances expirées" valeur={expirees} ton={expirees > 0 ? 'rouge' : 'vert'} />
-        <Kpi
-          titre="À renouveler sous 30 jours"
-          valeur={aRenouveler}
-          ton={aRenouveler > 0 ? 'orange' : 'vert'}
-        />
-        <Kpi
-          titre="Sinistres en cours"
-          valeur={sinistresActifs.length}
-          detail={`${sinistres.length} au total`}
-          ton={sinistresActifs.length > 0 ? 'orange' : 'vert'}
-        />
-      </div>
+      <Onglets onglets={ONGLETS} actif={onglet} onChoix={setOnglet} />
 
-      <h2 className="section-title">Assurances de la flotte</h2>
-      {assurances.length === 0 ? (
-        <p>Aucune assurance enregistrée.</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Véhicule</th>
-                <th>Assureur</th>
-                <th>Police</th>
-                <th>Échéance</th>
-                <th>État</th>
-                <th>Renouveler jusqu&apos;au</th>
-              </tr>
-            </thead>
-            <tbody>
-              {assurances.map((assurance, i) => (
-                <tr key={assurance.id} className={etats[i].ton === 'rouge' ? 'row-danger' : ''}>
-                  <td>{vehiculesParId[assurance.vehicule]?.immatriculation || assurance.vehicule}</td>
-                  <td>{assurance.compagnie_assurance}</td>
-                  <td>{assurance.numero_police}</td>
-                  <td>{formatDate(assurance.date_echeance)}</td>
-                  <td>
-                    <Badge ton={etats[i].ton}>{etats[i].label}</Badge>
-                  </td>
-                  <td>
-                    <div className="toolbar" style={{ margin: 0 }}>
-                      <input
-                        type="date"
-                        aria-label={`Nouvelle échéance de la police ${assurance.numero_police}`}
-                        value={datesRenouvellement[assurance.id] || ''}
-                        onChange={(e) =>
-                          setDatesRenouvellement({ ...datesRenouvellement, [assurance.id]: e.target.value })
-                        }
-                      />
-                      <button
-                        type="button"
-                        className="button-small"
-                        disabled={envoi || !datesRenouvellement[assurance.id]}
-                        onClick={() => renouveler(assurance)}
-                      >
-                        Renouveler
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {onglet === 'dossiers' && (
+        <>
+        <div className="cards-grid">
+          <Kpi titre="Assurances expirées" valeur={expirees} ton={expirees > 0 ? 'rouge' : 'vert'} />
+          <Kpi
+            titre="À renouveler sous 30 jours"
+            valeur={aRenouveler}
+            ton={aRenouveler > 0 ? 'orange' : 'vert'}
+          />
+          <Kpi
+            titre="Sinistres en cours"
+            valeur={sinistresActifs.length}
+            detail={`${sinistres.length} au total`}
+            ton={sinistresActifs.length > 0 ? 'orange' : 'vert'}
+          />
         </div>
-      )}
 
-      <h2 className="section-title">Sinistres</h2>
-      {sinistres.length === 0 ? (
-        <p>Aucun sinistre enregistré.</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Véhicule</th>
-                <th>Description</th>
-                <th>Incident lié</th>
-                <th>Statut</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sinistres.map((sinistre) => {
-                const incident = incidentsParId[sinistre.incident]
-                return (
-                  <tr key={sinistre.id}>
-                    <td>{formatDateHeure(sinistre.date)}</td>
-                    <td>{vehiculesParId[sinistre.vehicule]?.immatriculation || '—'}</td>
-                    <td>{sinistre.description}</td>
+        <h2 className="section-title">Assurances de la flotte</h2>
+        {assurances.length === 0 ? (
+          <p>Aucune assurance enregistrée.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Véhicule</th>
+                  <th>Assureur</th>
+                  <th>Police</th>
+                  <th>Échéance</th>
+                  <th>État</th>
+                  <th>Renouveler jusqu&apos;au</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assurances.map((assurance, i) => (
+                  <tr key={assurance.id} className={etats[i].ton === 'rouge' ? 'row-danger' : ''}>
+                    <td>{vehiculesParId[assurance.vehicule]?.immatriculation || assurance.vehicule}</td>
+                    <td>{assurance.compagnie_assurance}</td>
+                    <td>{assurance.numero_police}</td>
+                    <td>{formatDate(assurance.date_echeance)}</td>
                     <td>
-                      {incident
-                        ? `#${incident.id} ${LABELS_TYPE_INCIDENT[incident.type_incident] || ''} — ${incident.chauffeur_nom}`
-                        : '—'}
+                      <Badge ton={etats[i].ton}>{etats[i].label}</Badge>
                     </td>
                     <td>
-                      <Badge ton={TON_SINISTRE[sinistre.statut]}>{STATUTS_SINISTRE[sinistre.statut]}</Badge>
-                      <br />
-                      <select
-                        aria-label={`Statut du sinistre ${sinistre.id}`}
-                        value={sinistre.statut}
-                        disabled={envoi}
-                        onChange={(e) =>
-                          agir(
-                            () =>
-                              apiFetch(`/sinistres/${sinistre.id}/`, {
-                                method: 'PATCH',
-                                body: { statut: e.target.value },
-                              }),
-                            `Sinistre #${sinistre.id} : statut mis à jour.`,
-                          )
-                        }
-                      >
-                        {Object.entries(STATUTS_SINISTRE).map(([valeur, label]) => (
-                          <option key={valeur} value={valeur}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="toolbar" style={{ margin: 0 }}>
+                        <input
+                          type="date"
+                          aria-label={`Nouvelle échéance de la police ${assurance.numero_police}`}
+                          value={datesRenouvellement[assurance.id] || ''}
+                          onChange={(e) =>
+                            setDatesRenouvellement({ ...datesRenouvellement, [assurance.id]: e.target.value })
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="button-small"
+                          disabled={envoi || !datesRenouvellement[assurance.id]}
+                          onClick={() => renouveler(assurance)}
+                        >
+                          Renouveler
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <h2 className="section-title">Sinistres</h2>
+        {sinistres.length === 0 ? (
+          <p>Aucun sinistre enregistré.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Véhicule</th>
+                  <th>Description</th>
+                  <th>Incident lié</th>
+                  <th>Statut</th>
+                  <th>Dossier</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sinistres.map((sinistre) => {
+                  const incident = incidentsParId[sinistre.incident]
+                  return (
+                    <tr key={sinistre.id}>
+                      <td>{formatDateHeure(sinistre.date)}</td>
+                      <td>{vehiculesParId[sinistre.vehicule]?.immatriculation || '—'}</td>
+                      <td>{sinistre.description}</td>
+                      <td>
+                        {incident
+                          ? `#${incident.id} ${LABELS_TYPE_INCIDENT[incident.type_incident] || ''} — ${incident.chauffeur_nom}`
+                          : '—'}
+                      </td>
+                      <td>
+                        <Badge ton={TON_SINISTRE[sinistre.statut]}>{STATUTS_SINISTRE[sinistre.statut]}</Badge>
+                        <br />
+                        <select
+                          aria-label={`Statut du sinistre ${sinistre.id}`}
+                          value={sinistre.statut}
+                          disabled={envoi}
+                          onChange={(e) =>
+                            agir(
+                              () =>
+                                apiFetch(`/sinistres/${sinistre.id}/`, {
+                                  method: 'PATCH',
+                                  body: { statut: e.target.value },
+                                }),
+                              `Sinistre #${sinistre.id} : statut mis à jour.`,
+                            )
+                          }
+                        >
+                          {Object.entries(STATUTS_SINISTRE).map(([valeur, label]) => (
+                            <option key={valeur} value={valeur}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          aria-label={`Dossier du sinistre ${sinistre.id}`}
+                          onClick={() => setSinistreOuvert(sinistreOuvert === sinistre.id ? null : sinistre.id)}
+                        >
+                          {sinistreOuvert === sinistre.id ? 'Fermer' : `Pièces (${sinistre.pieces_total})`}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {sinistreOuvert && sinistres.find((s) => s.id === sinistreOuvert) && (
+          <DossierSinistre key={sinistreOuvert} sinistre={sinistres.find((s) => s.id === sinistreOuvert)} onChange={recharger} />
+        )}
+
+        <h2 className="section-title">Enregistrer une assurance</h2>
+        <section className="card">
+          <form onSubmit={creerAssurance}>
+            <div className="form-grid">
+              <label>
+                Véhicule
+                <select
+                  value={nouvelleAssurance.vehicule}
+                  onChange={(e) => setNouvelleAssurance({ ...nouvelleAssurance, vehicule: e.target.value })}
+                  required
+                >
+                  <option value="">— Choisir —</option>
+                  {vehicules.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.immatriculation}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Assureur
+                <input
+                  value={nouvelleAssurance.compagnie_assurance}
+                  onChange={(e) => setNouvelleAssurance({ ...nouvelleAssurance, compagnie_assurance: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                N° de police
+                <input
+                  value={nouvelleAssurance.numero_police}
+                  onChange={(e) => setNouvelleAssurance({ ...nouvelleAssurance, numero_police: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Échéance
+                <input
+                  type="date"
+                  value={nouvelleAssurance.date_echeance}
+                  onChange={(e) => setNouvelleAssurance({ ...nouvelleAssurance, date_echeance: e.target.value })}
+                  required
+                />
+              </label>
+            </div>
+            <div className="button-row">
+              <button type="submit" disabled={envoi}>
+                Enregistrer
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <h2 className="section-title">Déclarer un sinistre</h2>
+        <section className="card">
+          <form onSubmit={creerSinistre}>
+            <div className="form-grid">
+              <label>
+                Véhicule
+                <select
+                  value={nouveauSinistre.vehicule}
+                  onChange={(e) => setNouveauSinistre({ ...nouveauSinistre, vehicule: e.target.value })}
+                >
+                  <option value="">— Aucun —</option>
+                  {vehicules.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.immatriculation}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Incident déclaré (optionnel)
+                <select
+                  value={nouveauSinistre.incident}
+                  onChange={(e) => setNouveauSinistre({ ...nouveauSinistre, incident: e.target.value })}
+                >
+                  <option value="">— Aucun —</option>
+                  {incidentsRecents.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      #{i.id} {LABELS_TYPE_INCIDENT[i.type_incident]} — {formatDateHeure(i.date)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {nouveauSinistre.incident ? 'Description (reprise de l’incident si vide)' : 'Description'}
+                <input
+                  value={nouveauSinistre.description}
+                  onChange={(e) => setNouveauSinistre({ ...nouveauSinistre, description: e.target.value })}
+                  required={!nouveauSinistre.incident}
+                />
+              </label>
+            </div>
+            <div className="button-row">
+              <button type="submit" disabled={envoi}>
+                Déclarer
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <h2 className="section-title">Conformité réglementaire de la flotte (partagée avec le QHSE)</h2>
+        <TableauConformite />
+        </>
       )}
 
-      <h2 className="section-title">Enregistrer une assurance</h2>
-      <section className="card">
-        <form onSubmit={creerAssurance}>
-          <div className="form-grid">
-            <label>
-              Véhicule
-              <select
-                value={nouvelleAssurance.vehicule}
-                onChange={(e) => setNouvelleAssurance({ ...nouvelleAssurance, vehicule: e.target.value })}
-                required
-              >
-                <option value="">— Choisir —</option>
-                {vehicules.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.immatriculation}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Assureur
-              <input
-                value={nouvelleAssurance.compagnie_assurance}
-                onChange={(e) => setNouvelleAssurance({ ...nouvelleAssurance, compagnie_assurance: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              N° de police
-              <input
-                value={nouvelleAssurance.numero_police}
-                onChange={(e) => setNouvelleAssurance({ ...nouvelleAssurance, numero_police: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Échéance
-              <input
-                type="date"
-                value={nouvelleAssurance.date_echeance}
-                onChange={(e) => setNouvelleAssurance({ ...nouvelleAssurance, date_echeance: e.target.value })}
-                required
-              />
-            </label>
-          </div>
-          <div className="button-row">
-            <button type="submit" disabled={envoi}>
-              Enregistrer
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <h2 className="section-title">Déclarer un sinistre</h2>
-      <section className="card">
-        <form onSubmit={creerSinistre}>
-          <div className="form-grid">
-            <label>
-              Véhicule
-              <select
-                value={nouveauSinistre.vehicule}
-                onChange={(e) => setNouveauSinistre({ ...nouveauSinistre, vehicule: e.target.value })}
-              >
-                <option value="">— Aucun —</option>
-                {vehicules.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.immatriculation}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Incident déclaré (optionnel)
-              <select
-                value={nouveauSinistre.incident}
-                onChange={(e) => setNouveauSinistre({ ...nouveauSinistre, incident: e.target.value })}
-              >
-                <option value="">— Aucun —</option>
-                {incidentsRecents.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    #{i.id} {LABELS_TYPE_INCIDENT[i.type_incident]} — {formatDateHeure(i.date)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Description
-              <input
-                value={nouveauSinistre.description}
-                onChange={(e) => setNouveauSinistre({ ...nouveauSinistre, description: e.target.value })}
-                required
-              />
-            </label>
-          </div>
-          <div className="button-row">
-            <button type="submit" disabled={envoi}>
-              Déclarer
-            </button>
-          </div>
-        </form>
-      </section>
+      {onglet === 'litiges' && <LitigesSociaux />}
+      {onglet === 'modeles' && <ModelesJuridiquesGestion />}
+      {onglet === 'synthese' && <ReportingJuridique />}
     </Layout>
   )
 }

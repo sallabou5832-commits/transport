@@ -17,6 +17,12 @@ export function clearTokens() {
   localStorage.removeItem('refresh_token')
 }
 
+/** Le jeton d'accès courant, pour ce qu'un en-tête `Authorization` ne peut pas faire (le flux de la
+ * carte, `useFluxCarte.js`) : un navigateur ne pose pas d'en-tête sur une connexion WebSocket. */
+export function getAccessToken() {
+  return getTokens().access
+}
+
 async function refreshAccessToken() {
   const { refresh } = getTokens()
   if (!refresh) return null
@@ -41,18 +47,16 @@ class ApiError extends Error {
   }
 }
 
-export async function apiFetch(path, { method = 'GET', body, auth = true } = {}) {
-  const headers = { 'Content-Type': 'application/json' }
+// `brut` : le corps est envoyé tel quel (un FormData de fichier) et le navigateur pose lui-même l'en-tête Content-Type.
+async function envoyer(path, { method = 'GET', body, auth = true, brut = false } = {}) {
+  const headers = brut ? {} : { 'Content-Type': 'application/json' }
   if (auth) {
     const { access } = getTokens()
     if (access) headers.Authorization = `Bearer ${access}`
   }
+  const corps = body === undefined ? undefined : brut ? body : JSON.stringify(body)
 
-  let response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
+  let response = await fetch(`${API_BASE_URL}${path}`, { method, headers, body: corps })
 
   if (response.status === 401 && auth) {
     const newAccess = await refreshAccessToken()
@@ -60,15 +64,23 @@ export async function apiFetch(path, { method = 'GET', body, auth = true } = {})
       response = await fetch(`${API_BASE_URL}${path}`, {
         method,
         headers: { ...headers, Authorization: `Bearer ${newAccess}` },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: corps,
       })
     } else {
       clearTokens()
     }
   }
+  return response
+}
 
+async function lireJson(response) {
   const isJson = response.headers.get('content-type')?.includes('application/json')
-  const data = isJson ? await response.json().catch(() => null) : null
+  return isJson ? await response.json().catch(() => null) : null
+}
+
+export async function apiFetch(path, options) {
+  const response = await envoyer(path, options)
+  const data = await lireJson(response)
 
   if (!response.ok) {
     const message = extractErrorMessage(data) || `Erreur ${response.status}`
@@ -76,6 +88,37 @@ export async function apiFetch(path, { method = 'GET', body, auth = true } = {})
   }
 
   return data
+}
+
+/** Envoie un fichier (`FormData`) : pièces jointes des sinistres, fichiers des modèles de documents. */
+export async function apiEnvoyer(path, formData) {
+  const response = await envoyer(path, { method: 'POST', body: formData, brut: true })
+  const data = await lireJson(response)
+
+  if (!response.ok) {
+    throw new ApiError(extractErrorMessage(data) || `Erreur ${response.status}`, response.status, data)
+  }
+
+  return data
+}
+
+/**
+ * Télécharge un fichier servi par l'API (export CSV de la finance). Un simple lien ne joindrait pas le jeton d'accès : on
+ * récupère donc le fichier avec lui, puis on le dépose dans le navigateur. Le nom vient de l'en-tête de la réponse.
+ */
+export async function apiTelecharger(path, nomParDefaut = 'export.csv') {
+  const response = await envoyer(path)
+  if (!response.ok) {
+    const data = await lireJson(response)
+    throw new ApiError(extractErrorMessage(data) || `Erreur ${response.status}`, response.status, data)
+  }
+  const nom = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') || '')?.[1] || nomParDefaut
+  const url = URL.createObjectURL(await response.blob())
+  const lien = document.createElement('a')
+  lien.href = url
+  lien.download = nom
+  lien.click()
+  URL.revokeObjectURL(url)
 }
 
 function extractErrorMessage(data) {

@@ -3,6 +3,10 @@ import { apiFetch } from '../api/client.js'
 import useChargement from '../api/useChargement.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import Layout from '../components/Layout.jsx'
+import DemandePieceAtelier from '../components/DemandePieceAtelier.jsx'
+import FicheVehicule from '../components/FicheVehicule.jsx'
+import FileReparations from '../components/FileReparations.jsx'
+import PlansEntretien from '../components/PlansEntretien.jsx'
 import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
 import { LABELS_VEHICULE, TON_VEHICULE, formatDateHeure, indexParId } from '../lib/format.js'
@@ -213,6 +217,12 @@ export default function ChefAtelierDashboard() {
           </div>
         </>
       )}
+
+      <h2 className="section-title">Pilotage de l'atelier</h2>
+      <FileReparations onChange={recharger} />
+      <DemandePieceAtelier />
+      <PlansEntretien onChange={recharger} />
+      <FicheVehicule />
     </Layout>
   )
 }

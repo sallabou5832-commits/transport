@@ -75,6 +75,7 @@ export const LABELS_TYPE_INCIDENT = {
   panne: 'Panne',
   accident: 'Accident',
   retard: 'Retard',
+  cargaison: 'Anomalie de cargaison',
   autre: 'Autre',
 }
 

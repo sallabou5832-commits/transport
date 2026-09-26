@@ -1,0 +1,22 @@
+[
+  { "username": "pdg_stc", "role": "pdg", "page": "/dashboard/direction" },
+  { "username": "secretaire_general_stc", "role": "secretaire_general", "page": "/dashboard/direction" },
+  { "username": "qhse_stc", "role": "qhse", "page": "/dashboard/qhse" },
+  { "username": "directeur_exploitation_stc", "role": "directeur_exploitation", "page": "/dashboard/exploitation" },
+  { "username": "chef_gare_stc", "role": "chef_gare", "page": "/dashboard/gare" },
+  { "username": "chef_ligne_stc", "role": "chef_ligne", "page": "/dashboard/ligne" },
+  { "username": "guichetier_stc", "role": "guichetier", "page": "/dashboard/guichetier" },
+  { "username": "bagagiste_stc", "role": "bagagiste", "page": "/dashboard/bagagiste" },
+  { "username": "chauffeur_stc", "role": "chauffeur_principal", "page": "/dashboard/chauffeur" },
+  { "username": "chauffeur_relais_stc", "role": "chauffeur_relais", "page": "/dashboard/chauffeur" },
+  { "username": "chauffeur_libre_stc", "role": "chauffeur_relais", "page": "/dashboard/chauffeur" },
+  { "username": "controleur_stc", "role": "controleur_ligne", "page": "/dashboard/controle" },
+  { "username": "directeur_technique_stc", "role": "directeur_technique", "page": "/dashboard/technique" },
+  { "username": "magasinier_stc", "role": "magasinier", "page": "/dashboard/magasinier" },
+  { "username": "chef_atelier_stc", "role": "chef_atelier", "page": "/dashboard/atelier" },
+  { "username": "mecanicien_stc", "role": "mecanicien", "page": "/dashboard/mecanicien" },
+  { "username": "drh_stc", "role": "drh", "page": "/dashboard/rh" },
+  { "username": "directeur_financier_stc", "role": "directeur_financier", "page": "/dashboard/finance" },
+  { "username": "responsable_juridique_stc", "role": "responsable_juridique", "page": "/dashboard/juridique" },
+  { "username": "superadmin_demo", "role": "superadmin", "page": "/dashboard/plateforme" }
+]

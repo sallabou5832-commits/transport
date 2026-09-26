@@ -6,6 +6,8 @@ import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
 import Jauge from '../components/Jauge.jsx'
 import Kpi from '../components/Kpi.jsx'
+import DemandeLigne from '../components/DemandeLigne.jsx'
+import VehiculesAtelier from '../components/VehiculesAtelier.jsx'
 import PlanificationDepart from '../components/PlanificationDepart.jsx'
 import {
   LABELS_DEPART,
@@ -345,6 +347,12 @@ export default function ChefLigneDashboard() {
       )}
 
       <PlanificationDepart lignes={lignes} onPlanifie={recharger} />
+
+      <h2 className="section-title">Véhicules à l'atelier</h2>
+      <VehiculesAtelier />
+
+      <h2 className="section-title">Fermer ou rouvrir une ligne</h2>
+      <DemandeLigne />
     </Layout>
   )
 }
