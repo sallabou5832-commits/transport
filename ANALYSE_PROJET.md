@@ -4,6 +4,14 @@ Analyse réalisée le 21 septembre 2026 sur l'état du dépôt après l'étape 1
 Elle repose sur des **mesures et des sondes exécutées sur le code**, pas sur des impressions : chaque chiffre de ce
 document a été relevé, et les constats de sécurité ont été vérifiés par des appels réels à l'API.
 
+> **Mise à jour.** Cette analyse décrit l'état **avant** le chantier de mise en conformité au cahier des charges. Ce chantier a
+> depuis ajouté les alertes inter-pôles, les blocages QHSE, les colis, la configuration hiérarchique, la gamification, le
+> suivi GPS / fatigue / relais / carte, le contrôle des billets à bord, les pouvoirs de direction (fermeture de ligne,
+> arbitrage entre gares, suspension de compte, investissements) et la maintenance avancée, et il a corrigé des écarts de sécurité
+> (limitation des connexions, tarif imposé, unicité des pièces). **L'état actuel de la conformité, ce qui a été fait et ce qui
+> reste à faire sont dans [`RAPPORT_CONFORMITE.md`](RAPPORT_CONFORMITE.md)** ; les chiffres de conformité du §1 et du §5 ci-dessous
+> sont ceux d'avant et ne sont plus à jour.
+
 ## 1. Synthèse
 
 **Verdict : un socle solide et bien testé, prêt pour un pilote restreint sous conditions, mais qui ne couvre qu'environ

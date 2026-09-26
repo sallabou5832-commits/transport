@@ -1,0 +1,160 @@
+# Intégration continue : tout ce qui se vérifie à la main aujourd'hui se vérifie ici à chaque envoi de code.
+#
+#   backend     tests Python sur PostgreSQL, contrôle des migrations manquantes, `check --deploy`
+#   frontend    lint, tests unitaires, compilation
+#   e2e         parcours dans un vrai navigateur (Chrome) contre une vraie API et une base jetable
+#   mobile      analyse et tests Flutter
+#   securite    audit des dépendances (pip-audit, npm audit) : informatif tant que le seuil n'est pas décidé
+#
+# Les secrets ne sont jamais dans ce fichier : les valeurs ci-dessous n'existent que dans ces machines jetables.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DJANGO_SECRET_KEY: cle-jetable-pour-l-integration-continue
+  DJANGO_DEBUG: "True"
+  DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+  DB_NAME: transport_coord
+  DB_USER: transport_coord_user
+  DB_PASSWORD: mot-de-passe-jetable
+  DB_HOST: localhost
+  DB_PORT: "5432"
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: transport_coord
+          POSTGRES_USER: transport_coord_user
+          POSTGRES_PASSWORD: mot-de-passe-jetable
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U transport_coord_user"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: transpt1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: transpt1/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Migrations manquantes
+        run: python manage.py makemigrations --check --dry-run
+      - name: Tests
+        run: python -m pytest -q -p no:cacheprovider
+      - name: Contrôle de déploiement (réglages de production)
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_SECRET_KEY: une-cle-secrete-longue-et-aleatoire-uniquement-pour-ce-controle-0123456789abcdef
+          DJANGO_ALLOWED_HOSTS: exemple.ci
+        run: python manage.py check --deploy --fail-level WARNING
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: transport_coord
+          POSTGRES_USER: transport_coord_user
+          POSTGRES_PASSWORD: mot-de-passe-jetable
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U transport_coord_user"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # Le compte de l'application doit pouvoir créer la base jetable des essais (POSTGRES_USER est superutilisateur).
+      E2E_PYTHON: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: transpt1/requirements*.txt
+      - run: pip install -r transpt1/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+      - name: Parcours dans le navigateur
+        working-directory: frontend
+        env:
+          E2E_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
+        run: npm run e2e
+      - name: Captures d'écran
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-e2e
+          path: frontend/e2e/captures
+          if-no-files-found: ignore
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  securite:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: pip-audit
+        run: pip install pip-audit && pip-audit -r transpt1/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=high

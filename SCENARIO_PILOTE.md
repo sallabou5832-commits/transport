@@ -217,12 +217,90 @@ Filtres par type d'objet, action et dates ; « Charger plus » ajoute 50 lignes 
 Les variantes B, C et D ont été jouées dans un vrai navigateur (21/09/2026, base de démonstration neuve), à l'exception des
 points signalés « non rejoué » : aucune erreur JavaScript, aucune réponse refusée hormis le refus volontaire de suppression.
 
+## Variantes E à N — les fonctions ajoutées depuis (jouées automatiquement)
+
+Les variantes suivantes couvrent ce qui a été ajouté après la première version de ce scénario. Elles sont **rejouées
+automatiquement, dans un vrai Chrome, par `npm run e2e`** (voir plus bas) ; les étapes ci-dessous permettent de les jouer aussi
+à la main. Base de démonstration complète (`seed_demo_users`, `seed_demo_reseau`, `seed_demo_operations`, `seed_demo_tableaux`).
+
+**Variante E — Un colis, de l'enregistrement au retrait.** `bagagiste_stc` : enregistre un colis sur le départ du jour
+(description, poids, frais de fret, expéditeur, destinataire + téléphone) → « le code de retrait a été envoyé au destinataire »
+(le code n'apparaît **pas** à l'écran ; en mode simulation, lisez-le dans « Notification logs » de l'administration). « Marquer
+chargé » → le plan de chargement de la soute s'affiche. `chauffeur_stc` démarre puis termine sa feuille de route ; le colis passe
+« arrivé » (le bagagiste de la gare d'arrivée est alerté). Retrait : un mauvais code est refusé (« Code incorrect »), le bon
+code remet le colis (statut « retiré »).
+
+**Variante F — Clôture de caisse.** `guichetier_stc` vend deux tickets (espèces, mobile money), voit « Ma caisse du jour » puis
+« Clôturer ma caisse » → « clôturée : le chef de gare en est prévenu ». `chef_gare_stc` : l'alerte « Caisse clôturée : … »
+dans la cloche, et « Caisses du jour de l'équipe » montre la clôture. Le chef de gare peut régler le niveau d'automatisation de
+son guichetier (« Configuration ») : en « manuel », c'est lui qui clôture ; en « automatique », `manage.py cloturer_caisses` le fait.
+
+**Variante G — Contrôle à bord.** `controleur_stc` : « Ouvrir un contrôle » sur un trajet, puis saisir les codes des billets
+(vus dans le SMS du voyageur) : un billet neuf = « Billet valide », le même présenté deux fois = « DÉJÀ UTILISÉ », un code
+inventé = « INCONNU ». « Clôturer » avec le nombre de voyageurs comptés : le rapport compare aux billets vendus (« 3 voyageur(s) de
+plus que de billets vendus »). Un second contrôle avec « Infraction grave » et son motif : `qhse_stc` reçoit l'alerte « Infraction
+grave au contrôle » et voit l'incident grave créé.
+
+**Variante H — Suivi GPS, fatigue et relais.** `chef_ligne_stc` planifie un départ demain à 3 h et `chauffeur_stc` (ou
+`chauffeur2_stc`) démarre sa feuille de route. Sur la page du chauffeur : « Activer le suivi GPS » (le navigateur demande la
+position) → « dernière position envoyée » ; `pdg_stc` voit le car sur la carte du réseau. Au-delà de 4 h 30 de conduite continue :
+« Vous conduisez depuis plus de 4 h 30 » avec des relais suggérés ; « Passer le relais » à un autre conducteur, lieu « Toumodi » →
+le nouveau conducteur a le trajet, sa fatigue repart de zéro, l'ancien ne conduit plus.
+
+**Variante I — Pouvoirs d'exploitation et de direction.** `chef_ligne_stc` : « Demander la fermeture » d'une ligne (motif) → la
+ligne reste ouverte. `directeur_exploitation_stc` : la demande apparaît sous « Arbitrage du réseau » → « Valider » : la ligne est
+fermée (badge « Fermée »), `guichetier_stc` ne voit plus ses départs (« départ(s) non proposé(s) : ligne fermée »), `chef_gare_stc`
+est alerté. Toujours chez lui : « Gares en tension » (départs des 24 h contre véhicules disponibles) → rattacher un véhicule à
+une autre gare (motif) ; les chefs des deux gares sont alertés. `directeur_technique_stc` : « Investissements » → nouvelle
+demande. `pdg_stc` : « Pilotage » → rouvrir la ligne, en geler une autre, valider un investissement, refuser l'autre
+(**la raison est exigée**), puis suspendre le compte de `guichetier_stc` (motif) : sa session ouverte est coupée à
+l'actualisation, sa connexion est refusée ; « Réactiver » le rend tel qu'il était.
+
+**Variante J — L'atelier.** `directeur_technique_stc` : « Déclarer un plan d'entretien » (contrôle technique tous les 90 jours,
+dernier il y a 80 jours) → « Bientôt dû ». Lancer `python manage.py generer_alertes` : `chef_atelier_stc` est alerté et un ordre
+« Entretien préventif : Contrôle technique » apparaît dans la file, confié au mécanicien le moins chargé, avec son retour
+estimé. Le directeur technique le monte devant la révision (même urgence), le confie au chef d'atelier ; l'urgence haute reste
+en tête. `mecanicien_stc` : « Demander une pièce » (une en stock, une en rupture proche : la disponibilité s'affiche tout de
+suite). `magasinier_stc` : sert la première (le stock baisse, la sortie est liée à l'ordre) et refuse l'autre avec un motif ;
+« Réapprovisionnement suggéré » liste la pièce basse. `chef_ligne_stc` voit le retour estimé des véhicules à l'atelier ;
+`pdg_stc`, le rapport de renouvellement de la flotte (un véhicule à plus de 600 000 km).
+
+**Variante K — Secrétariat, santé de la gare, conformité.** `secretaire_general_stc` : « Secrétariat » → diffuser une note de service au
+pôle technique, ajouter un rendez-vous à l'agenda (le directeur technique invité), classer puis archiver un dossier (il ne se supprime
+pas). `mecanicien_stc` et `directeur_technique_stc` : la note et l'invitation sont dans leur cloche ; « Notes de service » la relit.
+`chef_gare_stc` : « Santé de la gare » (ponctualité, recettes, véhicules), retirer puis réaffecter un bagagiste de son équipe, envoyer un
+message à l'équipe : `guichetier_stc` le reçoit. `qhse_stc` : « Conformité de la flotte » signale « Visite technique périodique en retard »
+pour CI-1002-AB.
+
+**Variante L — Comptabilité.** `directeur_financier_stc` : le tableau de bord montre la trésorerie ; « Comptabilité » : le budget carburant du
+mois (une ligne à plus de 80 %, une dépassée), fixer le solde de départ, relever un budget, saisir une dépense de carburant sur la ligne
+dépassée (le directeur financier et le PDG sont alertés), payer la facture en retard (la dépense s'enregistre seule), ajouter un fournisseur et
+sa facture, exporter la rentabilité par ligne et par gare (CSV pour Excel). `pdg_stc` : la trésorerie sur son tableau de bord, « Finances »
+(lecture seule, sans bouton de saisie), l'alerte de dépassement.
+
+**Variante M — Ressources humaines.** `guichetier_stc` : « Mon espace » → sa demande de congé en attente, aucune formation obligatoire pour
+son poste, déposer une doléance grave. `chauffeur_stc` : sécurité routière (OSER) « à renouveler », visite médicale « à jour ». `drh_stc` :
+« Formations obligatoires » → une formation expirée → « Enregistrer une session » → elle passe à jour ; « Congés » → le congé du guichetier
+(seul à son poste) affiche un **impact critique** et demande « Valider malgré tout », celui du chauffeur signale les **départs à réaffecter**
+(l'exploitation est alertée) ; « Médiation sociale » → instruire la doléance (une étape visible de l'agent, une note interne qui ne l'est pas) ;
+« Recrutement » → personnaliser puis rétablir la fiche type d'un poste, retenir deux candidats : l'offre est pourvue ; « Dossiers » → « Fiche
+complète » d'un agent : contrat, évaluation existante, nouvelle évaluation.
+
+**Variante N — Juridique.** `responsable_juridique_stc` : l'alerte « Risque de litige social (grave) » et l'onglet « Litiges sociaux » (le poste de
+l'auteur, jamais son identité) ; un accident déclaré par `chauffeur_stc` ouvre le sinistre → « Pièces » : référence de l'assureur, montant estimé,
+joindre un constat PDF puis le télécharger (identique à l'original) ; « Modèles de documents » : publier un modèle réservé aux fonctions supports,
+joindre un fichier à un autre. `guichetier_stc`, `mecanicien_stc`, `drh_stc` : « Modèles juridiques » ne montre que les modèles ouverts à leur pôle ;
+recherche, lecture, copie du texte, téléchargement. `pdg_stc` : « Synthèse RH et juridique » (points de vigilance, chiffres de la gestion RH).
+
 ## Ce que ce scénario ne couvre pas
 
 - **Le mobile** : l'application n'a pas été lancée sur un téléphone (aucun émulateur possible sur la machine de
   développement). Côté chauffeur, elle n'affiche que la feuille de route : checklist, départ et incident se font sur
   le web. L'APK *release* est compilé et signé, mais **jamais installé** : voir `mobile/TEST_TELEPHONES.md`.
 - **Les envois réels de SMS et WhatsApp** (mode simulation), **le paiement mobile money réel**, **le vocal**.
+- **Le GPS d'un vrai téléphone** : la variante H a été jouée avec une position simulée dans un navigateur de test, jamais en roulant.
+- **Ce qui reste à faire du cahier des charges** (rotation des quais, passage de service, moteur vocal, application mobile à jour…) :
+  voir `RAPPORT_CONFORMITE.md`. Les modules RH, finance et juridique n'ont été essayés qu'avec les données de démonstration.
 - **L'avertissement des voyageurs quand un départ vendu est décalé** : aucun message automatique (avertissement à l'écran seulement).
 
 ## Rejouer automatiquement
@@ -230,6 +308,14 @@ points signalés « non rejoué » : aucune erreur JavaScript, aucune réponse r
 ```bash
 cd transpt1
 pytest role_coverage_tests/test_scenario_pilote.py
+```
+
+Les variantes E à N se rejouent dans un vrai navigateur :
+
+```bash
+cd frontend
+npm run e2e                 # quatorze scénarios (base jetable, API et site lancés pour l'occasion) ; environ 8 minutes
+npm run e2e -- atelier      # un seul (le filtre porte sur le nom du scénario ; « jeu,caisse » en joue deux)
 ```
 
 Ces tests jouent le parcours nominal (étapes 1 à 7) et la variante A par l'API, chaque étape avec le compte du rôle
