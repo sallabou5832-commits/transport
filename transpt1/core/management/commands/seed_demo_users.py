@@ -22,7 +22,7 @@ COMPANIES = {
     },
 }
 
-# Un compte par rôle du cahier des charges (17 rôles métier + superadmin), pour que chaque tableau
+# Un compte par rôle du cahier des charges (18 rôles métier + superadmin), pour que chaque tableau
 # de bord puisse être essayé. `nom` : « Prénom Nom », affiché dans les tableaux de bord.
 DEMO_USERS = [
     {"username": "pdg_stc", "role": Role.PDG, "company": "stc_voyages", "nom": "Marie Koffi"},
@@ -37,10 +37,12 @@ DEMO_USERS = [
     {"username": "chauffeur2_stc", "role": Role.CHAUFFEUR_PRINCIPAL, "company": "stc_voyages", "nom": "Moussa Diallo"},
     {"username": "chauffeur3_stc", "role": Role.CHAUFFEUR_PRINCIPAL, "company": "stc_voyages", "nom": "Adama Traore"},
     {"username": "chauffeur_relais_stc", "role": Role.CHAUFFEUR_RELAIS, "company": "stc_voyages", "nom": "Ibrahim Sanogo"},
+    {"username": "chauffeur_libre_stc", "role": Role.CHAUFFEUR_RELAIS, "company": "stc_voyages", "nom": "Salif Ouedraogo"},
     {"username": "controleur_stc", "role": Role.CONTROLEUR_LIGNE, "company": "stc_voyages", "nom": "Jean Yao"},
     {"username": "directeur_technique_stc", "role": Role.DIRECTEUR_TECHNIQUE, "company": "stc_voyages", "nom": "Hamed Sylla"},
     {"username": "magasinier_stc", "role": Role.MAGASINIER, "company": "stc_voyages", "nom": "Kader Doumbia"},
     {"username": "chef_atelier_stc", "role": Role.CHEF_ATELIER, "company": "stc_voyages", "nom": "Boubacar Camara"},
+    {"username": "mecanicien_stc", "role": Role.MECANICIEN, "company": "stc_voyages", "nom": "Souleymane Fofana"},
     {"username": "drh_stc", "role": Role.DRH, "company": "stc_voyages", "nom": "Nadege Kouassi"},
     {"username": "directeur_financier_stc", "role": Role.DIRECTEUR_FINANCIER, "company": "stc_voyages", "nom": "Serge N'Guessan"},
     {"username": "responsable_juridique_stc", "role": Role.RESPONSABLE_JURIDIQUE, "company": "stc_voyages", "nom": "Aicha Diomande"},

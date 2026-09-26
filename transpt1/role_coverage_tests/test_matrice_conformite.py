@@ -11,6 +11,12 @@ from core.models import Role
 
 TOUS_LES_ROLES = [r.value for r in Role]
 PERIODE = "date_debut={0}&date_fin={0}"
+# La comptabilité : tenue par la finance, lue par le PDG et son secrétaire général (pas par le superadmin : données de compagnie).
+FINANCE = {"directeur_financier", "pdg", "secretaire_general"}
+# Ressources humaines : la direction lit, le DRH tient ; le libre-service (congés, doléances, formations) est ouvert à tout poste de
+# compagnie, chacun n'y voyant que ce qui le concerne (le superadmin, sans compagnie, n'y a pas accès).
+DIRECTION_RH = {"drh", "pdg", "secretaire_general"}
+COMPAGNIE = {r for r in TOUS_LES_ROLES if r != "superadmin"}
 
 # endpoint -> rôles autorisés (tout autre rôle doit recevoir 403)
 RESTREINTS = {
@@ -32,6 +38,100 @@ RESTREINTS = {
     "/api/departs/{depart}/remplacants-possibles/": {
         "superadmin", "pdg", "secretaire_general", "directeur_exploitation", "chef_gare", "chef_ligne",
     },
+    # Colis : noms et téléphones des clients, donc pas de transparence par défaut (voir PERMISSIONS.md §8).
+    "/api/colis/": {
+        "superadmin", "pdg", "secretaire_general", "directeur_exploitation", "chef_gare", "chef_ligne", "bagagiste",
+        "guichetier", "controleur_ligne", "chauffeur_principal", "chauffeur_relais", "qhse",
+    },
+    "/api/departs/{depart}/plan-chargement/": {
+        "superadmin", "pdg", "secretaire_general", "directeur_exploitation", "chef_gare", "chef_ligne", "bagagiste",
+        "guichetier", "controleur_ligne", "chauffeur_principal", "chauffeur_relais", "qhse",
+    },
+    # Où sont les cars, qui conduit depuis combien de temps : régulation, direction, QHSE, technique (pas le superadmin :
+    # ces données sont celles d'une compagnie).
+    "/api/positions/dernieres/": {
+        "pdg", "secretaire_general", "directeur_exploitation", "chef_gare", "chef_ligne", "qhse", "directeur_technique",
+    },
+    "/api/dashboard/carte/": {
+        "pdg", "secretaire_general", "directeur_exploitation", "chef_gare", "chef_ligne", "qhse", "directeur_technique",
+    },
+    # Contrôles à bord : billets, fraudes, infractions. Le contrôleur voit les siens, la supervision ceux de la compagnie.
+    "/api/controles/": {
+        "controleur_ligne", "qhse", "directeur_exploitation", "pdg", "secretaire_general", "chef_ligne", "chef_gare",
+        "superadmin",
+    },
+    # Pouvoirs d'exploitation et de direction : fermer une ligne, suspendre un compte, valider un investissement.
+    "/api/changements-ligne/": {"chef_ligne", "chef_gare", "directeur_exploitation", "pdg"},
+    "/api/comptes/": {"pdg"},
+    "/api/investissements/": {
+        "pdg", "secretaire_general", "directeur_financier", "directeur_technique", "directeur_exploitation",
+    },
+    # Maintenance avancée : charge de l'atelier, demandes de pièces, suggestions de commande, fiche véhicule, rapport de
+    # renouvellement. Données d'atelier : pas de transparence par défaut (voir PERMISSIONS.md §4).
+    "/api/maintenance/charge-mecaniciens/": {"directeur_technique", "chef_atelier"},
+    "/api/maintenance/besoin-renouvellement/": {
+        "directeur_technique", "pdg", "secretaire_general", "directeur_exploitation", "directeur_financier",
+    },
+    "/api/pieces/suggestions-commande/": {"magasinier", "directeur_technique", "chef_atelier"},
+    "/api/demandes-pieces/": {"magasinier", "mecanicien", "chef_atelier", "directeur_technique"},
+    "/api/fiche-vehicule/{vehicule}/": {
+        "directeur_technique", "chef_atelier", "mecanicien", "magasinier", "directeur_exploitation", "pdg",
+        "secretaire_general", "qhse",
+    },
+    # « Santé de la gare » : le chef de gare pour la sienne, le pilotage de l'exploitation pour la gare de son choix (?gare=).
+    "/api/dashboard/gare/?gare={gare}": {"chef_gare", "directeur_exploitation", "pdg", "secretaire_general"},
+    # Secrétariat de la direction : archives réservées au secrétariat, agenda partagé de la direction, notes de service qui
+    # ne visent que les postes concernés (le superadmin, sans compagnie, n'en lit aucune), messages directs des gares.
+    "/api/archives/": {"secretaire_general", "pdg"},
+    "/api/agenda/": {
+        "pdg", "secretaire_general", "qhse", "directeur_exploitation", "directeur_technique", "directeur_financier", "drh",
+        "responsable_juridique",
+    },
+    "/api/messages-directs/": {"chef_gare", "directeur_exploitation", "pdg", "secretaire_general"},
+    "/api/notes-service/": {r for r in TOUS_LES_ROLES if r != "superadmin"},
+    # Conformité réglementaire de la flotte : partagée par le QHSE et le juridique, lue par le technique, l'exploitation, la direction.
+    "/api/conformite/": {
+        "qhse", "responsable_juridique", "directeur_technique", "directeur_exploitation", "pdg", "secretaire_general",
+    },
+    # Carnet de route numérique : celui du conducteur connecté (les autres postes n'en ont pas).
+    "/api/carnet-de-route/": {"chauffeur_principal", "chauffeur_relais"},
+    # Finance : dépenses, budgets carburant, fournisseurs et factures, rentabilité, trésorerie, exports.
+    "/api/depenses/": FINANCE,
+    "/api/budgets-carburant/": FINANCE,
+    "/api/fournisseurs/": FINANCE,
+    "/api/factures/": FINANCE,
+    "/api/finance/rentabilite/": FINANCE,
+    "/api/finance/budget-carburant/": FINANCE,
+    "/api/finance/tresorerie/": FINANCE,
+    "/api/finance/configuration/": FINANCE,
+    "/api/finance/export/?type=rentabilite": FINANCE,
+    # RH : catalogue des formations (le QHSE y participe), synthèse, fiches de poste et recrutement (le DRH tient, la direction lit).
+    "/api/obligations-formation/": {"drh", "qhse", "pdg", "secretaire_general"},
+    "/api/rh/synthese/": DIRECTION_RH,
+    "/api/fiches-poste/": DIRECTION_RH,
+    "/api/offres-recrutement/": DIRECTION_RH,
+    "/api/candidatures/": DIRECTION_RH,
+    # Libre-service RH : chacun voit ses formations, congés, doléances, contrats, évaluations et mesures (et l'échelon ceux de ses postes).
+    "/api/formations-obligatoires/suivi/": COMPAGNIE,
+    "/api/formations-suivies/": COMPAGNIE,
+    "/api/conges/": COMPAGNIE,
+    "/api/doleances/": COMPAGNIE,
+    "/api/contrats/": COMPAGNIE,
+    "/api/evaluations/": COMPAGNIE,
+    "/api/mesures-disciplinaires/": COMPAGNIE,
+    # Juridique : litiges sociaux signalés, pièces de sinistre, reporting pour la direction, bibliothèque de modèles ouverte à tous les pôles.
+    "/api/litiges-sociaux/": {"responsable_juridique", "drh", "pdg"},
+    "/api/pieces-sinistre/": {"responsable_juridique", "directeur_technique"},
+    "/api/juridique/reporting/": {"responsable_juridique", "pdg", "secretaire_general"},
+    "/api/modeles-juridiques/": COMPAGNIE,
+    "/api/gamification/agents/": {"drh", "pdg"},  # scores de tous les agents : aide à l'évaluation, pas de transparence
+    "/api/clotures-caisse/": {
+        "superadmin", "pdg", "secretaire_general", "qhse", "directeur_exploitation", "chef_gare", "chef_ligne",
+        "guichetier",
+    },
+    "/api/affectations-gare/agents-affectables/": {
+        "superadmin", "pdg", "secretaire_general", "directeur_exploitation", "chef_gare",
+    },
 }
 
 # Lecture ouverte à tout utilisateur authentifié de la compagnie (règle générale de PERMISSIONS.md).
@@ -48,14 +148,35 @@ LECTURE_GENERALE = [
     "/api/pieces/",
     "/api/pieces/sous-seuil/",
     "/api/ordres-reparation/",
+    "/api/ordres-reparation/file-attente/",  # la file de l'atelier, avec les retours estimés, remonte à la régulation
+    "/api/plans-entretien/",
+    "/api/plans-entretien/echeances/",
     "/api/sorties-pieces/",
     "/api/dossiers-agents/",
+    "/api/alertes/",
+    "/api/blocages-securite/",
+    "/api/affectations-gare/",  # chacun n'y voit que son propre rattachement
+    "/api/configuration/moi/",
+    "/api/configuration/catalogue/",
+    "/api/configuration/compagnie/",  # tous voient le cadre de leur compagnie ; seul le PDG le modifie
+    "/api/configuration/postes/",  # liste vide pour qui ne règle personne
+    "/api/configuration/agents/",
+    "/api/suivi/moi/",  # « en_cours: false » pour qui ne conduit pas
+    "/api/relais/",  # un conducteur y voit ses relais, la régulation tous ; liste vide pour les autres
+    "/api/communication/catalogue/",  # les pôles et leurs postes
+    "/api/gamification/moi/",
+    "/api/gamification/classement/",  # « visible: false » pour qui n'a pas la gamification complète
 ]
 
 
 def _url(gabarit, monde_a):
     aujourdhui = timezone.localdate().isoformat()
-    return gabarit.replace("{0}", aujourdhui).replace("{depart}", str(monde_a["depart"].id))
+    return (
+        gabarit.replace("{0}", aujourdhui)
+        .replace("{depart}", str(monde_a["depart"].id))
+        .replace("{vehicule}", str(monde_a["vehicule"].id))
+        .replace("{gare}", str(monde_a["gare_depart"].id))
+    )
 
 
 @pytest.mark.django_db
@@ -85,7 +206,9 @@ class TestLectureGenerale:
         assert api_client.get(url).status_code == 200
 
     def test_le_dossier_agent_reste_cloisonne(self, api_client, tous_les_roles, monde_a):
-        """Exception à la transparence : données RH. Seul le DRH voit les dossiers des autres."""
+        """Exception à la transparence : données RH. Le DRH voit tous les dossiers ; les autres, seulement le leur et ceux des postes
+        placés sous leur autorité (configuration hiérarchique) : ici, le dossier d'un contrôleur de ligne, que règlent le directeur de
+        l'exploitation et le PDG. Sans les notes internes du DRH."""
         api_client.force_authenticate(user=tous_les_roles["drh"])
         assert [d["id"] for d in api_client.get("/api/dossiers-agents/").data] == [monde_a["dossier"].id]
 
@@ -93,7 +216,12 @@ class TestLectureGenerale:
             if role in ("drh", "superadmin"):
                 continue
             api_client.force_authenticate(user=tous_les_roles[role])
-            assert api_client.get("/api/dossiers-agents/").data == [], role
+            donnees = api_client.get("/api/dossiers-agents/").data
+            if role in ("pdg", "directeur_exploitation"):
+                assert [d["id"] for d in donnees] == [monde_a["dossier"].id], role
+                assert "notes_rh" not in donnees[0], role
+            else:
+                assert donnees == [], role
 
 
 @pytest.mark.django_db

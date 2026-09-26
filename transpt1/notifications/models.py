@@ -20,6 +20,9 @@ class NotificationLog(models.Model):
     ticket = models.ForeignKey(
         Ticket, on_delete=models.SET_NULL, null=True, blank=True, related_name="notifications"
     )
+    colis = models.ForeignKey(
+        "colis.Colis", on_delete=models.SET_NULL, null=True, blank=True, related_name="notifications"
+    )
     destinataire = models.CharField(max_length=30)
     canal = models.CharField(max_length=20, choices=CanalNotification.choices, default=CanalNotification.SMS)
     fournisseur = models.CharField(max_length=20, blank=True)

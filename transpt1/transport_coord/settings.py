@@ -62,6 +62,10 @@ CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 # Application definition
 
 INSTALLED_APPS = [
+    # Avant staticfiles : nécessaire pour que `manage.py runserver` serve le HTTP et les WebSocket du
+    # même processus en développement (voir transport_coord/asgi.py, dashboard/routing.py).
+    'daphne',
+    'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -81,6 +85,14 @@ INSTALLED_APPS = [
     'notifications',
     'formation',
     'audit',
+    'alertes',
+    'colis',
+    'configuration',
+    'gamification',
+    'investissements',
+    'communication',
+    'finance',
+    'rh',
     'tutelle',
 ]
 
@@ -116,6 +128,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'transport_coord.wsgi.application'
+ASGI_APPLICATION = 'transport_coord.asgi.application'
 
 
 # Database
@@ -246,7 +259,53 @@ CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
 # Un client web (ex. l'application mobile compilée pour le navigateur) envoie
 # Idempotency-Key ; sans cette autorisation, la requête préalable CORS le refuserait.
 CORS_ALLOW_HEADERS = (*default_headers, 'idempotency-key')
-CORS_EXPOSE_HEADERS = ['Idempotent-Replayed']
+# Content-Disposition : le site lit le nom du fichier des exports (finance) dans la réponse.
+CORS_EXPOSE_HEADERS = ['Idempotent-Replayed', 'Content-Disposition']
+
+
+# Suivi de trajet : temps de conduite continue (en minutes) au-delà duquel l'alerte de fatigue se déclenche. 270 = 4 h 30,
+# la durée maximale de conduite sans pause de la réglementation européenne, prise ici comme repère.
+SUIVI_SEUIL_FATIGUE_MINUTES = config('SUIVI_SEUIL_FATIGUE_MINUTES', default=270, cast=int)
+
+# Relevés GPS (PositionVehicule) : un car en route peut envoyer une position toutes les 30 secondes à quelques minutes ;
+# rien ne les exploite au-delà de la dernière position de chaque trajet (`personnel_roulant.suivi.dernieres_positions`) et
+# du calcul de fatigue (qui ne regarde que les feuilles de route, pas les positions) : les garder indéfiniment ne ferait
+# que ralentir la table sans rien apporter. `manage.py purger_positions_gps` (à planifier chaque nuit, voir
+# DEPLOIEMENT.md) supprime les relevés plus vieux que POSITIONS_RETENTION_JOURS, par lots pour ne jamais verrouiller
+# la table longtemps.
+POSITIONS_RETENTION_JOURS = config('POSITIONS_RETENTION_JOURS', default=30, cast=int)
+
+
+# Connexion : nombre maximal de tentatives (réussies ou non) par couple adresse + identifiant, et par adresse.
+CONNEXION_LIMITE_COMPTE = config('CONNEXION_LIMITE_COMPTE', default='10/min')
+CONNEXION_LIMITE_ADRESSE = config('CONNEXION_LIMITE_ADRESSE', default='30/min')
+
+# Cache : il porte les compteurs de la limitation des connexions. Par défaut, la mémoire du processus (un compteur par worker :
+# convient à un seul processus). Avec plusieurs workers ou machines, choisir un cache partagé, par exemple en base :
+#   DJANGO_CACHE_BACKEND=django.core.cache.backends.db.DatabaseCache  DJANGO_CACHE_LOCATION=cache_table
+# puis `python manage.py createcachetable` (voir DEPLOIEMENT.md).
+CACHES = {
+    'default': {
+        'BACKEND': config('DJANGO_CACHE_BACKEND', default='django.core.cache.backends.locmem.LocMemCache'),
+        'LOCATION': config('DJANGO_CACHE_LOCATION', default='transport-coord'),
+    }
+}
+
+
+# Carte temps réel (positions des cars poussées par WebSocket au lieu d'être rechargées à intervalle
+# régulier : voir dashboard/consumers.py, dashboard/routing.py, personnel_roulant/suivi.py). La couche de
+# canaux relie les workers entre eux pour qu'un relevé reçu par l'un soit poussé par tous les autres aux
+# navigateurs qu'ils servent. Par défaut en mémoire : ne relie qu'un seul processus (même limite que
+# CACHES ci-dessus — suffisant pour un pilote sur un seul serveur). Avec plusieurs workers ou machines :
+# `pip install channels-redis` puis DJANGO_CHANNEL_LAYER_REDIS_URL=redis://localhost:6379/0.
+_channel_layer_redis_url = config('DJANGO_CHANNEL_LAYER_REDIS_URL', default='')
+CHANNEL_LAYERS = {
+    'default': (
+        {'BACKEND': 'channels_redis.core.RedisChannelLayer', 'CONFIG': {'hosts': [_channel_layer_redis_url]}}
+        if _channel_layer_redis_url
+        else {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
+    )
+}
 
 
 # Billetterie : places réservées pour la vente hors ligne des guichetiers (application mobile)
@@ -301,7 +360,31 @@ TWILIO_WHATSAPP_CONTENT_SID = config('TWILIO_WHATSAPP_CONTENT_SID', default='')
 # Canaux utilisés pour confirmer une vente de ticket : "sms", "whatsapp" ou les deux.
 NOTIFICATIONS_CANAUX_TICKET = config('NOTIFICATIONS_CANAUX_TICKET', default='sms,whatsapp', cast=Csv())
 
+# Canaux utilisés pour prévenir l'expéditeur et le destinataire d'un colis à chaque étape. Le message WhatsApp part en
+# texte libre (aucun modèle approuvé n'est prévu pour les colis : voir DEPLOIEMENT.md).
+NOTIFICATIONS_CANAUX_COLIS = config('NOTIFICATIONS_CANAUX_COLIS', default='sms,whatsapp', cast=Csv())
+
 ORANGE_SMS_CLIENT_ID = config('ORANGE_SMS_CLIENT_ID', default='')
 ORANGE_SMS_CLIENT_SECRET = config('ORANGE_SMS_CLIENT_SECRET', default='')
 ORANGE_SMS_SENDER = config('ORANGE_SMS_SENDER', default='')
 ORANGE_SMS_SENDER_NAME = config('ORANGE_SMS_SENDER_NAME', default='')
+
+
+# Maintenance préventive : un entretien est « bientôt dû » à moins de N jours ou N kilomètres de son échéance.
+ENTRETIEN_PREAVIS_JOURS = config('ENTRETIEN_PREAVIS_JOURS', default=15, cast=int)
+ENTRETIEN_PREAVIS_KM = config('ENTRETIEN_PREAVIS_KM', default=1000, cast=int)
+
+# Médiation sociale : à partir de cette gravité (faible, moyenne, grave, critique), une doléance encore ouverte prévient le
+# responsable juridique d'un risque de litige social.
+MEDIATION_SEUIL_LITIGE = config('MEDIATION_SEUIL_LITIGE', default='grave')
+
+# Pièces jointes (sinistres, modèles de documents juridiques) : rangées hors du code et servies par l'API seulement, après
+# contrôle des droits (jamais par un lien public). Sauvegarder ce dossier avec la base (voir DEPLOIEMENT.md).
+MEDIA_ROOT = config('DJANGO_MEDIA_ROOT', default=str(BASE_DIR / 'media'))
+PIECES_JOINTES_TAILLE_MAX_MO = config('PIECES_JOINTES_TAILLE_MAX_MO', default=5, cast=int)
+
+# Renouvellement de la flotte : un véhicule entre dans le rapport de besoin de renouvellement dès qu'un de ces seuils est atteint
+# (kilométrage, ordres de réparation sur 12 mois, jours d'immobilisation sur 12 mois).
+RENOUVELLEMENT_KM = config('RENOUVELLEMENT_KM', default=600000, cast=int)
+RENOUVELLEMENT_ORDRES_12_MOIS = config('RENOUVELLEMENT_ORDRES_12_MOIS', default=8, cast=int)
+RENOUVELLEMENT_JOURS_IMMOBILISE_12_MOIS = config('RENOUVELLEMENT_JOURS_IMMOBILISE_12_MOIS', default=60, cast=int)

@@ -2,18 +2,23 @@ from audit import contexte
 from core.models import Role
 
 
-class CompanyScopedQuerysetMixin:
-    """Restricts a ViewSet's queryset to the requesting user's company.
-
-    Superadmins (no company, platform operators) see everything.
-
-    Une fois la requête authentifiée, l'utilisateur est aussi désigné comme acteur du journal d'audit :
-    toute écriture faite par ce ViewSet lui sera attribuée (voir le paquet `audit`).
-    """
+class ActeurAuditeMixin:
+    """Une fois la requête authentifiée, l'utilisateur est désigné comme acteur du journal d'audit : toute écriture
+    faite par cette vue lui sera attribuée (voir le paquet `audit`). À utiliser sur toute vue qui écrit des objets
+    tracés sans passer par `CompanyScopedQuerysetMixin`."""
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         contexte.definir(acteur=request.user)
+
+
+class CompanyScopedQuerysetMixin(ActeurAuditeMixin):
+    """Restricts a ViewSet's queryset to the requesting user's company.
+
+    Superadmins (no company, platform operators) see everything.
+
+    Désigne aussi l'acteur du journal d'audit (voir `ActeurAuditeMixin`).
+    """
 
     def get_queryset(self):
         queryset = super().get_queryset()

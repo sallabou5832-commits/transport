@@ -33,13 +33,13 @@ class Command(BaseCommand):
         gare_adjame = self._create_gare("Gare Adjamé", "Abidjan", stc, chef_stc)
         gare_bouake_stc = self._create_gare("Gare Bouaké", "Bouaké", stc, None)
         self._create_ligne("Abidjan-Bouaké", gare_adjame, gare_bouake_stc, stc)
-        self._create_vehicule("CI-1001-AB", 70, VehiculeStatut.DISPONIBLE, stc)
-        self._create_vehicule("CI-1002-AB", 30, VehiculeStatut.EN_LIGNE, stc)
+        self._create_vehicule("CI-1001-AB", 70, VehiculeStatut.DISPONIBLE, stc, gare_adjame)
+        self._create_vehicule("CI-1002-AB", 30, VehiculeStatut.EN_LIGNE, stc, gare_bouake_stc)
 
         gare_bouake_savane = self._create_gare("Gare Bouaké Nord", "Bouaké", savane, chef_savane)
         gare_korhogo = self._create_gare("Gare Korhogo", "Korhogo", savane, None)
         self._create_ligne("Bouaké-Korhogo", gare_bouake_savane, gare_korhogo, savane)
-        self._create_vehicule("CI-2001-CD", 50, VehiculeStatut.EN_MAINTENANCE, savane)
+        self._create_vehicule("CI-2001-CD", 50, VehiculeStatut.EN_MAINTENANCE, savane, gare_bouake_savane)
 
     def _create_gare(self, nom, ville, company, chef):
         gare, created = Gare.objects.get_or_create(
@@ -61,11 +61,14 @@ class Command(BaseCommand):
         )
         return ligne
 
-    def _create_vehicule(self, immatriculation, capacite, statut, company):
+    def _create_vehicule(self, immatriculation, capacite, statut, company, gare=None):
         vehicule, created = Vehicule.objects.get_or_create(
             immatriculation=immatriculation,
-            defaults={"capacite": capacite, "statut": statut, "company": company},
+            defaults={"capacite": capacite, "statut": statut, "company": company, "gare": gare},
         )
+        if not created and vehicule.gare_id is None and gare is not None:
+            vehicule.gare = gare  # un parc déjà en base est rattaché à sa gare sans rien recréer
+            vehicule.save(update_fields=["gare"])
         self.stdout.write(
             self.style.SUCCESS(f"{'Créé' if created else 'Existe déjà'} : {vehicule}")
         )

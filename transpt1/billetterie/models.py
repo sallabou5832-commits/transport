@@ -1,3 +1,4 @@
+import secrets
 from decimal import Decimal
 
 from django.core.validators import MinValueValidator
@@ -58,6 +59,15 @@ class Depart(models.Model):
         return max(0, self.places_restantes - self.places_reservees)
 
 
+# Le code d'un billet sert à le vérifier à bord (saisi, lu par un lecteur de code ou dans un QR) : court, sans caractère ambigu.
+ALPHABET_BILLET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+LONGUEUR_CODE_BILLET = 10
+
+
+def generer_code_billet():
+    return "".join(secrets.choice(ALPHABET_BILLET) for _ in range(LONGUEUR_CODE_BILLET))
+
+
 class ModePaiement(models.TextChoices):
     ESPECES = "especes", "Espèces"
     MOBILE_MONEY = "mobile_money", "Mobile money"
@@ -77,6 +87,10 @@ class Ticket(models.Model):
         max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
     )
     mode_paiement = models.CharField(max_length=20, choices=ModePaiement.choices)
+    # Tarif de la ligne au moment de la vente (vide si la ligne n'en avait pas) et, quand le prix s'en écarte,
+    # le motif de la dérogation : une sous-facturation ne peut plus passer inaperçue.
+    prix_tarif = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, editable=False)
+    motif_derogation = models.CharField(max_length=255, blank=True)
     vendu_par = models.ForeignKey(
         "core.User", on_delete=models.PROTECT, related_name="tickets_vendus"
     )
@@ -89,6 +103,12 @@ class Ticket(models.Model):
     # le ticket, dit qui l'a annulé, quand et pourquoi, libère la place et sort la vente des recettes.
     statut = models.CharField(
         max_length=10, choices=StatutTicket.choices, default=StatutTicket.VALIDE, db_index=True
+    )
+    # Code du billet (envoyé au voyageur avec la confirmation) et validation à bord : un billet ne sert qu'une fois.
+    code = models.CharField(max_length=12, unique=True, default=generer_code_billet, editable=False)
+    utilise_le = models.DateTimeField(null=True, blank=True)
+    utilise_par = models.ForeignKey(
+        "core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="tickets_controles"
     )
     annule_par = models.ForeignKey(
         "core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="tickets_annules"
@@ -145,3 +165,39 @@ class ReservationHorsLigne(models.Model):
 
     def __str__(self):
         return f"{self.places} place(s) hors ligne pour {self.guichetier} sur {self.depart}"
+
+
+class ClotureCaisse(models.Model):
+    """La caisse d'un guichetier pour un jour, figée à la clôture et transmise au chef de gare. On ne clôture qu'une
+    fois par jour et par guichetier ; les ventes faites après ne rouvrent pas la caisse (elles apparaissent dans la
+    caisse du jour suivant, ou dans un écart que le chef de gare voit en comparant)."""
+
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="clotures_caisse")
+    guichetier = models.ForeignKey("core.User", on_delete=models.PROTECT, related_name="clotures_caisse")
+    gare = models.ForeignKey("reseau.Gare", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    date = models.DateField()
+    nombre_tickets = models.PositiveIntegerField()
+    montant_total = models.DecimalField(max_digits=12, decimal_places=2)
+    especes_nombre = models.PositiveIntegerField()
+    especes_montant = models.DecimalField(max_digits=12, decimal_places=2)
+    mobile_nombre = models.PositiveIntegerField()
+    mobile_montant = models.DecimalField(max_digits=12, decimal_places=2)
+    annulations_nombre = models.PositiveIntegerField(default=0)
+    annulations_montant = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    # Qui a clôturé : le guichetier lui-même, son chef, ou personne quand la clôture est automatique.
+    cloture_par = models.ForeignKey(
+        "core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="clotures_faites"
+    )
+    cloture_le = models.DateTimeField(auto_now_add=True)
+    automatique = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-date", "-cloture_le"]
+        verbose_name = "clôture de caisse"
+        verbose_name_plural = "clôtures de caisse"
+        constraints = [
+            models.UniqueConstraint(fields=["guichetier", "date"], name="une_cloture_par_guichetier_et_par_jour")
+        ]
+
+    def __str__(self):
+        return f"Caisse de {self.guichetier} du {self.date} : {self.montant_total}"

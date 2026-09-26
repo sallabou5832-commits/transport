@@ -33,6 +33,7 @@ class Role(models.TextChoices):
     DIRECTEUR_TECHNIQUE = "directeur_technique", "Directeur technique"
     MAGASINIER = "magasinier", "Magasinier"
     CHEF_ATELIER = "chef_atelier", "Chef d'atelier"
+    MECANICIEN = "mecanicien", "Mécanicien / électricien auto"
     DRH = "drh", "DRH"
     DIRECTEUR_FINANCIER = "directeur_financier", "Directeur financier"
     RESPONSABLE_JURIDIQUE = "responsable_juridique", "Responsable juridique"
@@ -47,6 +48,13 @@ class User(AbstractUser):
         null=True,
         blank=True,
     )
+    # Suspension du compte par le PDG (« bloquer un compte guichetier ») : `is_active` passe à faux, ce qui coupe aussitôt
+    # les sessions ouvertes ; ces champs disent quand, par qui et pourquoi.
+    suspendu_le = models.DateTimeField(null=True, blank=True)
+    suspendu_par = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    motif_suspension = models.CharField(max_length=255, blank=True)
 
     class Meta:
         constraints = [

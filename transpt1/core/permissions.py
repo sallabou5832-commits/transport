@@ -21,3 +21,11 @@ class IsSameCompany(BasePermission):
 
         obj_company_id = obj.id if isinstance(obj, Company) else getattr(obj, "company_id", None)
         return obj_company_id is not None and obj_company_id == user.company_id
+
+
+class IsPdg(BasePermission):
+    """Les pouvoirs d'intervention directe (suspendre un compte, valider un investissement) sont ceux du PDG."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.role == Role.PDG and user.company_id is not None)

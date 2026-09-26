@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, Throttled, ValidationError
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -11,6 +11,7 @@ from audit.models import ActionAudit, JournalAudit
 from audit.serializers import JournalAuditSerializer
 from core.dates import lire_date
 from core.models import Role
+from core.throttles import ThrottleConnexionAdresse, ThrottleConnexionCompte
 
 # Traçabilité pour l'audit et la conformité (cahier des charges) : la direction et le QHSE. Le journal d'une
 # compagnie ne sort jamais de cette compagnie ; seul le superadmin, opérateur de la plateforme, les voit toutes.
@@ -76,7 +77,16 @@ def _enregistrer_connexion(action, username, utilisateur=None):
 
 class ConnexionAuditee(TokenObtainPairView):
     """Connexion JWT dont chaque tentative, réussie ou non, est tracée (repérer un essai de mots de passe).
-    Le mot de passe saisi n'est jamais conservé : seul l'identifiant l'est."""
+    Le mot de passe saisi n'est jamais conservé : seul l'identifiant l'est. Les essais trop rapprochés sont refusés
+    (429) : voir `core.throttles`."""
+
+    throttle_classes = [ThrottleConnexionCompte, ThrottleConnexionAdresse]
+
+    def throttled(self, request, wait):
+        raise Throttled(
+            wait=wait,
+            detail=f"Trop de tentatives de connexion. Réessayez dans {int(wait) + 1} seconde(s).",
+        )
 
     def post(self, request, *args, **kwargs):
         username = str(request.data.get("username", ""))[:150]

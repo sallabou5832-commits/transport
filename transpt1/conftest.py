@@ -22,6 +22,17 @@ def http_en_clair_pour_les_tests(settings):
     settings.SECURE_SSL_REDIRECT = False
 
 
+@pytest.fixture(autouse=True)
+def cache_vide():
+    # Les compteurs de la limitation des connexions vivent dans le cache : sans cela, un test hériterait des
+    # tentatives du précédent (tous les tests se connectent depuis 127.0.0.1).
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 @pytest.fixture
 def api_client():
     return APIClient()

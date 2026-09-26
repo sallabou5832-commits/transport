@@ -3,80 +3,41 @@ from decimal import Decimal
 
 from django.db.models import Case, Count, F, IntegerField, Sum, Value, When
 from django.utils import timezone
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from billetterie.models import Depart, DepartStatut, StatutTicket, Ticket
+from colis.models import Colis, StatutColis
 from core.models import Company, Role, User
 from core.serializers import nom_complet
-from dashboard.permissions import IsDirection, IsExploitation, IsQhse, IsSuperadmin
+from dashboard.permissions import IsDirection, IsExploitation, IsQhse, IsSuperadmin, PeutVoirLaCarte, PeutVoirLaSanteDeLaGare
+from dashboard.ponctualite import bornes_du_jour, couleur, pourcentage, retard_minutes, statut_ponctualite
 from dashboard.serializers import IncidentTableauBordSerializer
 from maintenance.models import Piece
 from personnel_roulant.models import FeuilleDeRoute, GraviteIncident, Incident, StatutIncident
-from reseau.models import Gare, Ligne, Vehicule, VehiculeStatut
+from reseau.models import AffectationGare, Gare, Ligne, Vehicule, VehiculeStatut
 from supports.models import Assurance
-
-# Un départ est « à l'heure » s'il a lieu au plus tard 10 minutes après l'heure prévue.
-TOLERANCE_RETARD = datetime.timedelta(minutes=10)
-# Couleur d'une gare ou d'une ligne selon sa ponctualité (cahier des charges : vert/orange/rouge).
-SEUIL_PONCTUALITE_VERT = 90
-SEUIL_PONCTUALITE_ORANGE = 70
-
-
-def _bornes_du_jour(reference):
-    debut = timezone.localtime(reference).replace(hour=0, minute=0, second=0, microsecond=0)
-    return debut, debut + datetime.timedelta(days=1)
-
-
-def _pourcentage(partie, total):
-    return round(100 * partie / total) if total else None
-
-
-def _statut_ponctualite(feuille, maintenant):
-    """« a_l_heure », « en_retard » ou « en_attente » pour une feuille de route.
-
-    Une feuille non démarrée est en retard une fois la tolérance dépassée : le départ
-    n'a pas eu lieu, il ne faut pas attendre qu'il ait lieu pour le signaler.
-    """
-    limite = feuille.heure_depart_prevue + TOLERANCE_RETARD
-    if feuille.heure_depart_reelle is not None:
-        return "a_l_heure" if feuille.heure_depart_reelle <= limite else "en_retard"
-    return "en_retard" if maintenant > limite else "en_attente"
-
-
-def _retard_minutes(feuille, maintenant):
-    fin = feuille.heure_depart_reelle or maintenant
-    return max(0, int((fin - feuille.heure_depart_prevue).total_seconds() // 60))
-
-
-def _couleur(ponctualite):
-    if ponctualite is None:
-        return "neutre"
-    if ponctualite >= SEUIL_PONCTUALITE_VERT:
-        return "vert"
-    if ponctualite >= SEUIL_PONCTUALITE_ORANGE:
-        return "orange"
-    return "rouge"
 
 
 def _bilan(departs, feuilles, maintenant):
     """Remplissage et ponctualité d'un groupe de départs (une gare, une ligne, ou tout)."""
     places_vendues = sum(depart.places_vendues for depart in departs)
     capacite = sum(depart.vehicule.capacite for depart in departs)
-    statuts = [_statut_ponctualite(feuille, maintenant) for feuille in feuilles]
+    statuts = [statut_ponctualite(feuille, maintenant) for feuille in feuilles]
     a_l_heure, en_retard = statuts.count("a_l_heure"), statuts.count("en_retard")
-    ponctualite = _pourcentage(a_l_heure, a_l_heure + en_retard)
+    ponctualite = pourcentage(a_l_heure, a_l_heure + en_retard)
     return {
         "departs": len(departs),
         "places_vendues": places_vendues,
         "capacite": capacite,
-        "remplissage_pourcent": _pourcentage(places_vendues, capacite),
+        "remplissage_pourcent": pourcentage(places_vendues, capacite),
         "a_l_heure": a_l_heure,
         "en_retard": en_retard,
         "en_attente": statuts.count("en_attente"),
         "ponctualite_pourcent": ponctualite,
-        "couleur": _couleur(ponctualite),
+        "couleur": couleur(ponctualite),
     }
 
 
@@ -92,6 +53,13 @@ class DashboardDirectionView(APIView):
             nombre=Count("id")
         ):
             vehicules_par_statut[row["statut"]] = row["nombre"]
+
+        # Score de disponibilité de la flotte (Directeur technique -> tableau de bord du PDG) : part des véhicules en état de
+        # rouler, c'est-à-dire ni bloqués pour la sécurité, ni à l'atelier.
+        total_vehicules = sum(vehicules_par_statut.values())
+        disponibilite_flotte = pourcentage(
+            vehicules_par_statut[VehiculeStatut.DISPONIBLE] + vehicules_par_statut[VehiculeStatut.EN_LIGNE], total_vehicules
+        )
 
         incidents_par_gravite = {gravite: 0 for gravite in GraviteIncident.values}
         depuis_7_jours = timezone.now() - datetime.timedelta(days=7)
@@ -125,6 +93,7 @@ class DashboardDirectionView(APIView):
         return Response(
             {
                 "vehicules_par_statut": vehicules_par_statut,
+                "disponibilite_flotte_pourcent": disponibilite_flotte,
                 "incidents_ouverts_par_gravite_7_jours": incidents_par_gravite,
                 "recettes_du_jour": recettes_du_jour,
                 "pieces_sous_seuil": pieces_sous_seuil,
@@ -158,6 +127,41 @@ class DashboardQhseView(APIView):
         return Response(serializer.data)
 
 
+_TENSION_VIDE = {"vehicules_attaches": 0, "vehicules_disponibles": 0, "departs_24h": 0, "tension": 0, "en_tension": False}
+
+
+def _tension_des_gares(company, maintenant):
+    """Par gare : départs à assurer dans les 24 heures contre véhicules disponibles rattachés à la gare. Un écart positif
+    signale une gare en tension ; un écart négatif, une gare qui a de quoi en prêter. Les départs d'une ligne fermée ne
+    comptent pas : ils ne rouleront pas."""
+    horizon = maintenant + datetime.timedelta(hours=24)
+    a_assurer = {}
+    for depart in Depart.objects.filter(
+        company=company,
+        statut=DepartStatut.PLANIFIE,
+        date_heure__gte=maintenant - datetime.timedelta(hours=2),
+        date_heure__lte=horizon,
+    ).select_related("ligne"):
+        if not depart.ligne.est_fermee:
+            a_assurer[depart.ligne.gare_depart_id] = a_assurer.get(depart.ligne.gare_depart_id, 0) + 1
+    attaches, disponibles = {}, {}
+    for ligne in Vehicule.objects.filter(company=company, gare__isnull=False).values("gare_id", "statut").annotate(n=Count("id")):
+        attaches[ligne["gare_id"]] = attaches.get(ligne["gare_id"], 0) + ligne["n"]
+        if ligne["statut"] == VehiculeStatut.DISPONIBLE:
+            disponibles[ligne["gare_id"]] = disponibles.get(ligne["gare_id"], 0) + ligne["n"]
+    resultat = {}
+    for gare_id in set(a_assurer) | set(attaches):
+        ecart = a_assurer.get(gare_id, 0) - disponibles.get(gare_id, 0)
+        resultat[gare_id] = {
+            "vehicules_attaches": attaches.get(gare_id, 0),
+            "vehicules_disponibles": disponibles.get(gare_id, 0),
+            "departs_24h": a_assurer.get(gare_id, 0),
+            "tension": ecart,
+            "en_tension": ecart > 0,
+        }
+    return resultat
+
+
 class DashboardExploitationView(APIView):
     """Vue d'ensemble de l'exploitation du jour : gares, lignes, ponctualité, flotte, incidents."""
 
@@ -166,7 +170,7 @@ class DashboardExploitationView(APIView):
     def get(self, request):
         company = request.user.company
         maintenant = timezone.now()
-        debut_jour, fin_jour = _bornes_du_jour(maintenant)
+        debut_jour, fin_jour = bornes_du_jour(maintenant)
 
         departs = list(
             Depart.objects.filter(
@@ -191,6 +195,7 @@ class DashboardExploitationView(APIView):
             feuilles_par_gare.setdefault(ligne.gare_depart_id, []).append(feuille)
             feuilles_par_ligne.setdefault(ligne.id, []).append(feuille)
 
+        tension = _tension_des_gares(company, maintenant)
         gares = [
             {
                 "id": gare.id,
@@ -199,6 +204,7 @@ class DashboardExploitationView(APIView):
                 **_bilan(
                     departs_par_gare.get(gare.id, []), feuilles_par_gare.get(gare.id, []), maintenant
                 ),
+                **tension.get(gare.id, _TENSION_VIDE),
             }
             for gare in Gare.objects.filter(company=company)
         ]
@@ -208,6 +214,9 @@ class DashboardExploitationView(APIView):
                 "nom": ligne.nom,
                 "gare_depart": ligne.gare_depart.nom,
                 "gare_arrivee": ligne.gare_arrivee.nom,
+                "est_fermee": ligne.est_fermee,
+                "fermee_jusqu_au": ligne.fermee_jusqu_au,
+                "motif_fermeture": ligne.motif_fermeture if ligne.est_fermee else "",
                 **_bilan(
                     departs_par_ligne.get(ligne.id, []), feuilles_par_ligne.get(ligne.id, []), maintenant
                 ),
@@ -223,11 +232,11 @@ class DashboardExploitationView(APIView):
                 "ligne": feuille.depart.ligne.nom,
                 "chauffeur_nom": nom_complet(feuille.chauffeur),
                 "heure_depart_prevue": feuille.heure_depart_prevue,
-                "retard_minutes": _retard_minutes(feuille, maintenant),
+                "retard_minutes": retard_minutes(feuille, maintenant),
             }
             for feuille in feuilles
             if feuille.heure_depart_reelle is None
-            and _statut_ponctualite(feuille, maintenant) == "en_retard"
+            and statut_ponctualite(feuille, maintenant) == "en_retard"
         ]
 
         feuilles_7_jours = FeuilleDeRoute.objects.filter(
@@ -235,8 +244,8 @@ class DashboardExploitationView(APIView):
             heure_depart_prevue__gte=maintenant - datetime.timedelta(days=7),
             heure_depart_prevue__lte=maintenant,
         )
-        statuts_7_jours = [_statut_ponctualite(feuille, maintenant) for feuille in feuilles_7_jours]
-        ponctualite_7_jours = _pourcentage(
+        statuts_7_jours = [statut_ponctualite(feuille, maintenant) for feuille in feuilles_7_jours]
+        ponctualite_7_jours = pourcentage(
             statuts_7_jours.count("a_l_heure"),
             statuts_7_jours.count("a_l_heure") + statuts_7_jours.count("en_retard"),
         )
@@ -297,6 +306,109 @@ class DashboardExploitationView(APIView):
         )
 
 
+class DashboardGareView(APIView):
+    """« Santé de la gare » : ponctualité, remplissage, recettes (billets et fret) et incidents du jour, départs en retard,
+    véhicules et équipe. Le chef de gare voit la sienne ; le directeur des opérations, le PDG et le secrétaire général,
+    la gare indiquée par `?gare=`."""
+
+    permission_classes = [IsAuthenticated, PeutVoirLaSanteDeLaGare]
+
+    def get(self, request):
+        user = request.user
+        if user.role == Role.CHEF_GARE:
+            gare = Gare.objects.filter(company=user.company, chef=user).first()
+            if gare is None:
+                raise NotFound("Aucune gare ne vous est rattachée.")
+        else:
+            brut = request.query_params.get("gare", "")
+            gare = Gare.objects.filter(company=user.company, pk=int(brut)).first() if brut.isdigit() else None
+            if gare is None:
+                raise ValidationError({"gare": "Indiquez une gare de votre compagnie (?gare=)."})
+
+        company = user.company
+        maintenant = timezone.now()
+        aujourdhui = timezone.localdate(maintenant)
+        debut_jour, fin_jour = bornes_du_jour(maintenant)
+        de_la_gare = {"company": company}
+
+        departs = list(
+            Depart.objects.filter(
+                ligne__gare_depart=gare, date_heure__gte=debut_jour, date_heure__lt=fin_jour, **de_la_gare
+            ).select_related("ligne", "vehicule")
+        )
+        feuilles = list(
+            FeuilleDeRoute.objects.filter(
+                depart__ligne__gare_depart=gare, heure_depart_prevue__gte=debut_jour, heure_depart_prevue__lt=fin_jour, **de_la_gare
+            ).select_related("depart__ligne", "chauffeur")
+        )
+        statuts_7_jours = [
+            statut_ponctualite(feuille, maintenant)
+            for feuille in FeuilleDeRoute.objects.filter(
+                depart__ligne__gare_depart=gare,
+                heure_depart_prevue__gte=maintenant - datetime.timedelta(days=7),
+                heure_depart_prevue__lte=maintenant,
+                **de_la_gare,
+            )
+        ]
+
+        billets = {"total": Decimal("0"), "nombre": 0, "par_mode": {}}
+        for ligne in (
+            Ticket.objects.filter(depart__ligne__gare_depart=gare, date_vente__date=aujourdhui, statut=StatutTicket.VALIDE, **de_la_gare)
+            .values("mode_paiement")
+            .annotate(total=Sum("prix"), nombre=Count("id"))
+            .order_by()
+        ):
+            billets["par_mode"][ligne["mode_paiement"]] = ligne["total"]
+            billets["total"] += ligne["total"]
+            billets["nombre"] += ligne["nombre"]
+        fret = Colis.objects.filter(
+            depart__ligne__gare_depart=gare, enregistre_le__date=aujourdhui, **de_la_gare
+        ).exclude(statut=StatutColis.ANNULE).aggregate(total=Sum("frais"), nombre=Count("id"))
+
+        incidents = Incident.objects.filter(
+            statut=StatutIncident.OUVERT, feuille_de_route__depart__ligne__gare_depart=gare, **de_la_gare
+        )
+        equipe = {}
+        for role in AffectationGare.objects.filter(gare=gare).values_list("agent__role", flat=True):
+            equipe[role] = equipe.get(role, 0) + 1
+
+        return Response(
+            {
+                "gare": {"id": gare.id, "nom": gare.nom, "ville": gare.ville},
+                "date": aujourdhui,
+                "jour": _bilan(departs, feuilles, maintenant),
+                "ponctualite_7_jours_pourcent": pourcentage(
+                    statuts_7_jours.count("a_l_heure"), statuts_7_jours.count("a_l_heure") + statuts_7_jours.count("en_retard")
+                ),
+                "recettes": {
+                    "billets": billets["total"],
+                    "billets_par_mode": billets["par_mode"],
+                    "nombre_de_billets": billets["nombre"],
+                    "fret": fret["total"] or Decimal("0"),
+                    "nombre_de_colis": fret["nombre"],
+                    "total": billets["total"] + (fret["total"] or Decimal("0")),
+                },
+                "incidents_ouverts": {
+                    "total": incidents.count(),
+                    "graves": incidents.filter(gravite=GraviteIncident.GRAVE).count(),
+                },
+                "departs_en_retard": [
+                    {
+                        "depart": feuille.depart_id,
+                        "ligne": feuille.depart.ligne.nom,
+                        "chauffeur_nom": nom_complet(feuille.chauffeur),
+                        "heure_depart_prevue": feuille.heure_depart_prevue,
+                        "retard_minutes": retard_minutes(feuille, maintenant),
+                    }
+                    for feuille in feuilles
+                    if feuille.heure_depart_reelle is None and statut_ponctualite(feuille, maintenant) == "en_retard"
+                ],
+                "vehicules": _tension_des_gares(company, maintenant).get(gare.id, _TENSION_VIDE),
+                "equipe": {"total": sum(equipe.values()), "par_role": equipe},
+            }
+        )
+
+
 class DashboardPlateformeView(APIView):
     """Vue de l'opérateur de la plateforme : une ligne par compagnie cliente."""
 
@@ -304,7 +416,7 @@ class DashboardPlateformeView(APIView):
 
     def get(self, request):
         maintenant = timezone.now()
-        debut_jour, fin_jour = _bornes_du_jour(maintenant)
+        debut_jour, fin_jour = bornes_du_jour(maintenant)
 
         def compter(queryset, **filtre):
             lignes = queryset.filter(**filtre).values("company_id").annotate(n=Count("id")).order_by()
@@ -361,5 +473,55 @@ class DashboardPlateformeView(APIView):
                     "tickets_du_jour": sum(c["tickets_du_jour"] for c in compagnies),
                     "recettes_du_jour": sum((c["recettes_du_jour"] for c in compagnies), Decimal("0")),
                 },
+            }
+        )
+
+
+class CarteReseauView(APIView):
+    """Carte du réseau en temps réel : les gares avec leur statut du jour (vert, orange, rouge selon la ponctualité), les lignes
+    qui les relient et les cars en route avec leur dernière position connue."""
+
+    permission_classes = [IsAuthenticated, PeutVoirLaCarte]
+
+    def get(self, request):
+        from personnel_roulant import suivi
+
+        company = request.user.company
+        maintenant = timezone.now()
+        debut_jour, fin_jour = bornes_du_jour(maintenant)
+        feuilles = FeuilleDeRoute.objects.filter(
+            company=company, heure_depart_prevue__gte=debut_jour, heure_depart_prevue__lt=fin_jour
+        ).select_related("depart__ligne")
+        statuts_par_gare = {}
+        for feuille in feuilles:
+            statuts_par_gare.setdefault(feuille.depart.ligne.gare_depart_id, []).append(statut_ponctualite(feuille, maintenant))
+
+        gares = []
+        for gare in Gare.objects.filter(company=company).order_by("nom"):
+            statuts = statuts_par_gare.get(gare.id, [])
+            a_l_heure, en_retard = statuts.count("a_l_heure"), statuts.count("en_retard")
+            ponctualite = pourcentage(a_l_heure, a_l_heure + en_retard)
+            gares.append(
+                {
+                    "id": gare.id,
+                    "nom": gare.nom,
+                    "ville": gare.ville,
+                    "latitude": gare.latitude,
+                    "longitude": gare.longitude,
+                    "departs_du_jour": len(statuts),
+                    "ponctualite_pourcent": ponctualite,
+                    "couleur": couleur(ponctualite),
+                }
+            )
+        lignes = [
+            {"id": ligne.id, "nom": ligne.nom, "gare_depart": ligne.gare_depart_id, "gare_arrivee": ligne.gare_arrivee_id}
+            for ligne in Ligne.objects.filter(company=company)
+        ]
+        return Response(
+            {
+                "mis_a_jour": maintenant,
+                "gares": gares,
+                "lignes": lignes,
+                "vehicules": suivi.dernieres_positions(company.id, maintenant),
             }
         )

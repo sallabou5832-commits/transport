@@ -7,9 +7,12 @@ autre départ non terminé à moins de FENETRE_OCCUPATION du départ visé. Les 
 
 import datetime
 
+from django.utils import timezone
+
 from billetterie.models import Depart, DepartStatut
 from core.models import Role, User
 from reseau.models import Vehicule, VehiculeStatut
+from rh.services import agents_en_conge
 
 FENETRE_OCCUPATION = datetime.timedelta(hours=8)
 # Un véhicule bloqué par le QHSE ou à l'atelier ne se planifie pas, quel que soit l'horaire.
@@ -53,8 +56,10 @@ def vehicules_disponibles(company_id, date_heure, places_min=0, exclure_depart_i
 
 def chauffeurs_disponibles(company_id, date_heure, exclure_depart_id=None):
     occupes = departs_proches(company_id, date_heure, exclure_depart_id).values("chauffeur_id")
+    en_conge = agents_en_conge(company_id, timezone.localtime(date_heure).date())  # un congé approuvé rend le conducteur indisponible
     return (
         User.objects.filter(company_id=company_id, role__in=ROLES_CHAUFFEUR, is_active=True)
         .exclude(pk__in=occupes)
+        .exclude(pk__in=en_conge)
         .order_by("username")
     )

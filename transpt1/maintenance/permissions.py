@@ -6,13 +6,19 @@ ROLES_SORTIE_PIECE = {Role.MAGASINIER, Role.CHEF_ATELIER, Role.DIRECTEUR_TECHNIQ
 
 
 class CanManageStockMovement(BasePermission):
-    """Only magasinier, chef_atelier and directeur_technique may touch stock movements."""
+    """Magasinier, chef d'atelier and directeur technique may record any stock movement ; the mécanicien
+    may record one too (the stock is updated at every outgoing part he registers), but only against an
+    order assigned to him — that last rule is checked by the serializer, which knows the order."""
 
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
             return True
         user = request.user
-        return bool(user and user.is_authenticated and user.role in ROLES_SORTIE_PIECE)
+        if not (user and user.is_authenticated):
+            return False
+        if request.method == "POST" and user.role == Role.MECANICIEN:
+            return True
+        return user.role in ROLES_SORTIE_PIECE
 
 
 class CanManagePiece(BasePermission):
@@ -67,3 +73,72 @@ class CanManageOrdreReparation(BasePermission):
         if user.role == Role.CHEF_ATELIER:
             return True
         return obj.mecanicien_id == user.id
+
+
+class _RolesDeLaCompagnie(BasePermission):
+    """Réservé à `ROLES`, pour une compagnie (le superadmin, sans compagnie, n'y a pas accès : ce sont des données d'atelier)."""
+
+    ROLES = set()
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.company_id is not None and user.role in self.ROLES)
+
+
+class PeutPiloterLAtelier(_RolesDeLaCompagnie):
+    """Ordonner la file des réparations, fixer une urgence ou un délai, répartir les interventions : le directeur technique et
+    le chef d'atelier."""
+
+    ROLES = {Role.DIRECTEUR_TECHNIQUE, Role.CHEF_ATELIER}
+
+
+class PeutGererLesPlans(BasePermission):
+    """Les plans d'entretien se lisent comme tout le reste ; les déclarer et les modifier revient au technique."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        return request.method in SAFE_METHODS or (
+            user.company_id is not None and user.role in {Role.DIRECTEUR_TECHNIQUE, Role.CHEF_ATELIER}
+        )
+
+
+class PeutUtiliserLesDemandesDePieces(BasePermission):
+    """Demander une pièce : l'atelier (mécanicien, chef d'atelier). La voir : l'atelier, le magasinier qui la sert, le directeur
+    technique. Servir ou refuser : le magasinier (action dédiée)."""
+
+    LECTURE = {Role.MAGASINIER, Role.MECANICIEN, Role.CHEF_ATELIER, Role.DIRECTEUR_TECHNIQUE}
+    ECRITURE = {Role.MECANICIEN, Role.CHEF_ATELIER}
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated and user.company_id is not None):
+            return False
+        return user.role in (self.LECTURE if request.method in SAFE_METHODS else self.ECRITURE)
+
+
+class PeutServirLesDemandes(_RolesDeLaCompagnie):
+    ROLES = {Role.MAGASINIER}
+
+
+class PeutVoirLesSuggestionsDeCommande(_RolesDeLaCompagnie):
+    ROLES = {Role.MAGASINIER, Role.DIRECTEUR_TECHNIQUE, Role.CHEF_ATELIER}
+
+
+class PeutVoirLaFicheVehicule(_RolesDeLaCompagnie):
+    """L'historique technique d'un véhicule : l'atelier, le magasin, l'exploitation, la direction, le QHSE."""
+
+    ROLES = {
+        Role.DIRECTEUR_TECHNIQUE, Role.CHEF_ATELIER, Role.MECANICIEN, Role.MAGASINIER, Role.DIRECTEUR_EXPLOITATION,
+        Role.PDG, Role.SECRETAIRE_GENERAL, Role.QHSE,
+    }
+
+
+class PeutVoirLeBesoinDeRenouvellement(_RolesDeLaCompagnie):
+    """Le rapport pour la Direction Générale : le PDG et son secrétaire général, le technique qui le nourrit, l'exploitation et
+    la finance qui en tirent des décisions."""
+
+    ROLES = {
+        Role.DIRECTEUR_TECHNIQUE, Role.PDG, Role.SECRETAIRE_GENERAL, Role.DIRECTEUR_EXPLOITATION, Role.DIRECTEUR_FINANCIER,
+    }

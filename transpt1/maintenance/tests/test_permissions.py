@@ -21,10 +21,13 @@ class TestRestrictionSortiePiece:
 
         assert response.status_code == 201
 
-    def test_mecanicien_ne_peut_pas_creer_une_sortie(
-        self, api_client, mecanicien_a, ordre_a, piece_a
+    @pytest.mark.parametrize("role", ["bagagiste", "guichetier", "chauffeur_principal", "drh", "directeur_financier"])
+    def test_les_autres_roles_ne_peuvent_pas_creer_une_sortie(
+        self, api_client, user_factory, company_a, role, ordre_a, piece_a
     ):
-        api_client.force_authenticate(user=mecanicien_a)
+        # Le mécanicien, lui, a ce droit pour ses propres ordres (voir test_role_mecanicien.py) : le cahier veut un
+        # stock « mis à jour à chaque sortie enregistrée par un mécanicien ».
+        api_client.force_authenticate(user=user_factory(f"{role}_sortie", role, company=company_a))
 
         response = api_client.post(
             "/api/sorties-pieces/",

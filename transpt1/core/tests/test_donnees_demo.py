@@ -7,7 +7,9 @@ from django.core.management.base import CommandError
 from django.utils import timezone
 
 from billetterie.models import Depart
-from core.models import Role
+from core.models import Company, Role
+from finance.analyses import rentabilite, suivi_budget_carburant, tresorerie
+from finance.models import Facture, StatutFacture
 
 COMMANDES = ["seed_demo_users", "seed_demo_reseau", "seed_demo_operations", "seed_demo_tableaux"]
 
@@ -56,6 +58,21 @@ class TestChaineDeDonneesDeDemo:
 
         assert get_user_model().objects.count() == utilisateurs
         assert Depart.objects.count() == departs
+
+    def test_la_comptabilite_de_demonstration_montre_un_budget_a_risque_et_des_factures_a_echeances_variees(self, settings):
+        settings.DEBUG = True
+        _lancer_toutes()
+        stc = Company.objects.get(name="STC Voyages")
+
+        etats = {ligne["nom"]: ligne["etat"] for ligne in suivi_budget_carburant(stc, timezone.localdate())["lignes"]}
+        cash = tresorerie(stc)
+
+        assert etats == {"Abidjan-Bouaké": "ok", "Yopougon-Yamoussoukro": "alerte", "Abidjan-Yamoussoukro": "depasse"}
+        assert cash["a_payer"]["factures_en_retard"] == 1 and cash["a_payer"]["sous_7_jours"] == 480000
+        payee = Facture.objects.get(company=stc, statut=StatutFacture.PAYEE)
+        assert payee.depense.montant == payee.montant and payee.payee_le == payee.depense.date
+        # Salaires, pneus payés au garage et vidange d'un véhicule (qui sert plusieurs lignes) : aucune n'est rattachée à une ligne ni à une gare.
+        assert rentabilite(stc, timezone.localdate().replace(day=1), timezone.localdate())["charges_communes"] == 600000 + 210000 + 180000
 
     def test_le_depart_de_demonstration_tombe_toujours_aujourd_hui(self, settings, monkeypatch):
         settings.DEBUG = True

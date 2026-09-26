@@ -1,0 +1,10 @@
+# Dépendances de développement et d'intégration continue : tout ce qu'il faut pour lancer les tests et l'audit.
+-r requirements.txt
+colorama==0.4.6
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+Pygments==2.21.0
+pytest==9.1.1
+pytest-django==4.14.0
+pip-audit

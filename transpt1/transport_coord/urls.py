@@ -33,5 +33,13 @@ urlpatterns = [
     path('api/', include('dashboard.urls')),
     path('api/', include('formation.urls')),
     path('api/', include('audit.urls')),
+    path('api/', include('alertes.urls')),
+    path('api/', include('colis.urls')),
+    path('api/', include('configuration.urls')),
+    path('api/', include('gamification.urls')),
+    path('api/', include('investissements.urls')),
+    path('api/', include('communication.urls')),
+    path('api/', include('finance.urls')),
+    path('api/', include('rh.urls')),
     path('api/', include('tutelle.urls')),
 ]

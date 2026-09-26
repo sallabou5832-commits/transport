@@ -36,7 +36,9 @@ class TestConnexionsTracees:
 
         assert JournalAudit.objects.get(action=ActionAudit.CONNEXION_ECHEC).objet_repr == "personne"
 
-    def test_quarante_essais_laissent_quarante_traces(self, api_client, user_factory, company_a):
+    def test_quarante_essais_laissent_quarante_traces(self, api_client, user_factory, company_a, settings):
+        # On relève la limite : ce test vérifie la trace de chaque essai, pas le freinage (voir test_limitation).
+        settings.CONNEXION_LIMITE_COMPTE = settings.CONNEXION_LIMITE_ADRESSE = "1000/min"
         user_factory("cible", Role.GUICHETIER, company=company_a)
 
         for i in range(40):

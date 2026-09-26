@@ -128,15 +128,36 @@ Le contenu des parcours (étapes, consignes, données fictives) s'édite dans l'
 
 ## Structure du projet
 
+18 applications Django, chacune avec ses `models.py` / `permissions.py` / `serializers.py` / `views.py` / `urls.py` /
+`tests/` :
+
 ```
 transpt1/
-├── transport_coord/       # Configuration du projet Django (settings, urls, wsgi/asgi)
-├── core/                   # Utilisateurs, rôles, compagnies (multi-tenant), auth JWT
-├── reseau/                 # Gares, lignes, véhicules
+├── transport_coord/    # Configuration du projet (settings, urls racine, wsgi/asgi)
+├── core/               # Utilisateurs, rôles, compagnies (multi-tenant), auth JWT, sauvegardes, suspension de compte
+├── audit/              # Journal d'audit (créations/modifications/suppressions, connexions), limitation des connexions
+├── reseau/             # Gares, lignes, véhicules, gare d'attache, fermeture/réouverture de ligne
+├── billetterie/        # Départs, tickets (tarif imposé, verrouillage, annulation), ventes hors ligne, clôture de caisse
+├── personnel_roulant/  # Feuilles de route, checklists, incidents, positions GPS, fatigue, relais, contrôle à bord
+├── maintenance/        # Pièces, stock, ordres de réparation, plans d'entretien préventif, fiche véhicule
+├── colis/               # Enregistrement, chargement et retrait des colis/bagages (code de retrait haché)
+├── supports/           # Dossiers RH (legacy), assurances, sinistres, bibliothèque de modèles juridiques
+├── rh/                  # Congés, formations obligatoires, contrats, évaluations, recrutement, médiation sociale
+├── finance/             # Dépenses, budget carburant, fournisseurs/factures, synthèse financière
+├── investissements/    # Demandes et décisions d'investissement (achat de cars, ouverture de ligne)
+├── configuration/      # Configuration hiérarchique compagnie → poste → agent (automatisation, gamification)
+├── gamification/       # Points, niveaux, badges, missions, classements par poste
+├── alertes/             # Alertes inter-pôles, génération automatique, blocages de sécurité QHSE
+├── communication/      # Notes de service, agenda de direction, messages directs, archives
+├── notifications/      # Envoi SMS/WhatsApp (Orange, Twilio), journal des notifications
+├── formation/           # Parcours de formation simulés par poste
+├── tutelle/             # Échange de données avec le Ministère des Transports / OSER / AMUGA / OFT (clé d'API)
+├── dashboard/           # Tableaux de bord (direction, exploitation, gare, carte du réseau)
+├── role_coverage_tests/ # Matrice de conformité rôle × endpoint, contrat pages web ↔ API
 ├── manage.py
 ├── requirements.txt
 ├── .env.example
-├── .env                    # non versionné
+├── .env                 # non versionné
 └── README.md
 ```
 
@@ -152,8 +173,8 @@ python manage.py seed_demo_operations    # nécessite seed_demo_users + seed_dem
 python manage.py seed_demo_tableaux      # données réalistes pour les tableaux de bord ; nécessite les trois précédentes
 ```
 
-Crée deux compagnies et des utilisateurs (un par rôle : les 17 rôles du cahier des
-charges et un superadmin) avec le mot de passe `Demo!2024`, des gares/lignes/véhicules
+Crée deux compagnies et des utilisateurs (un par rôle : les 18 rôles du cahier des
+charges, mécanicien compris, et un superadmin) avec le mot de passe `Demo!2024`, des gares/lignes/véhicules
 de démonstration, puis un départ, un ticket, une feuille de route, des pièces et un
 ordre de réparation, et enfin des données réalistes pour les tableaux de bord (départs
 du jour à l'heure ou en retard, six jours d'historique, incidents, assurances,
@@ -169,9 +190,15 @@ effet s'il a déjà été lancé.
 Une interface web (React + Vite) consommant cette API se trouve dans `../frontend`.
 Voir `frontend/README.md` pour l'installation et les comptes de démonstration.
 
+## Application mobile
+
+Une application Flutter (hors ligne d'abord, commande vocale) consommant la même API se trouve dans `../mobile`.
+Voir `mobile/README.md` pour l'installation, les comptes de démonstration et le protocole d'essai sur téléphone
+(`mobile/TEST_TELEPHONES.md`).
+
 ## Endpoints d'authentification
 
-- `POST /api/auth/login/` — obtenir un couple de tokens JWT (`access`/`refresh`)
+- `POST /api/auth/login/` — obtenir un couple de tokens JWT (`access`/`refresh`), tentative tracée dans le journal d'audit
 - `POST /api/auth/refresh/` — renouveler un token `access`
 - `GET /api/auth/me/` — infos de l'utilisateur connecté (rôle, compagnie)
 
@@ -206,3 +233,13 @@ CRUD complet, isolé par compagnie (`IsSameCompany`) :
 - `DEPLOIEMENT.md` : checklist de déploiement (variables d'environnement, migrations, premier lancement, proxy,
   sauvegardes, notifications) et limites connues avant le pilote.
 - `PERMISSIONS.md` : qui peut voir et faire quoi, par rôle (fait foi).
+
+## Analyses du projet
+
+- `../ANALYSE_PROJET.md` : analyse fonctionnelle, sécurité, performance et qualité complète, état du **21 septembre**
+  avant le chantier de mise en conformité (chiffres de conformité obsolètes, garder pour le détail méthode/risques).
+- `../RAPPORT_CONFORMITE.md` : les 99 fonctionnalités du cahier des charges, une par une, état **après** le chantier
+  (62 complètes, 19 partielles, 18 absentes) — référence à jour pour le fonctionnel.
+- `../AUDIT_SECURITE_FONCTIONNEL_2026-09-24.md` : audit sécurité **app par app** du 24 septembre (le plus récent),
+  couvrant aussi ce qui n'existait pas encore le 21 septembre (`tutelle`, la commande vocale mobile, les sauvegardes
+  automatisées) — référence à jour pour la sécurité.

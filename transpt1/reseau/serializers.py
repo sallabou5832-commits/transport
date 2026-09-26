@@ -1,8 +1,9 @@
 from rest_framework import serializers
 
-from core.models import Role
-from core.serializers import CompanySerializer
-from reseau.models import Gare, Ligne, Vehicule
+from core.models import Role, User
+from core.serializers import CompanySerializer, nom_complet
+from reseau.models import AffectationGare, ChangementLigne, Gare, Ligne, Vehicule
+from reseau.team import ROLES_AFFECTATION_TOUTES_GARES, ROLES_EQUIPE_LOCALE
 
 
 class GareSerializer(serializers.ModelSerializer):
@@ -10,7 +11,7 @@ class GareSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Gare
-        fields = ["id", "nom", "ville", "company", "chef"]
+        fields = ["id", "nom", "ville", "company", "chef", "latitude", "longitude"]
         read_only_fields = ["company"]
 
     def validate_chef(self, chef):
@@ -27,11 +28,16 @@ class GareSerializer(serializers.ModelSerializer):
 
 class LigneSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
+    # La fermeture ne se modifie pas ici : elle passe par une demande décidée (`/lignes/{id}/changement/`).
+    est_fermee = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Ligne
-        fields = ["id", "nom", "gare_depart", "gare_arrivee", "company"]
-        read_only_fields = ["company"]
+        fields = [
+            "id", "nom", "gare_depart", "gare_arrivee", "tarif", "company", "statut", "est_fermee", "fermee_jusqu_au",
+            "motif_fermeture",
+        ]
+        read_only_fields = ["company", "statut", "fermee_jusqu_au", "motif_fermeture"]
 
     def validate(self, attrs):
         gare_depart = attrs.get("gare_depart") or getattr(self.instance, "gare_depart", None)
@@ -54,8 +60,67 @@ class LigneSerializer(serializers.ModelSerializer):
 
 class VehiculeSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
+    gare_nom = serializers.CharField(source="gare.nom", read_only=True, default=None)
 
     class Meta:
         model = Vehicule
-        fields = ["id", "immatriculation", "capacite", "statut", "company"]
+        # La gare d'attache ne se change que par l'arbitrage `reaffecter-gare` (qui prévient les deux gares).
+        fields = ["id", "immatriculation", "capacite", "statut", "company", "gare", "gare_nom", "kilometrage"]
+        read_only_fields = ["company", "gare"]
+
+
+class AffectationGareSerializer(serializers.ModelSerializer):
+    company = CompanySerializer(read_only=True)
+    # Déclaré à la main : le champ généré par DRF porterait son propre contrôle d'unicité, au message moins utile.
+    agent = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    agent_nom = serializers.SerializerMethodField()
+    agent_role = serializers.CharField(source="agent.role", read_only=True)
+    gare_nom = serializers.CharField(source="gare.nom", read_only=True)
+
+    class Meta:
+        model = AffectationGare
+        fields = ["id", "agent", "agent_nom", "agent_role", "gare", "gare_nom", "company"]
         read_only_fields = ["company"]
+        validators = []  # l'unicité de l'agent est vérifiée plus bas, avec un message qui dit où il est déjà affecté
+
+    def get_agent_nom(self, obj):
+        return nom_complet(obj.agent)
+
+    def validate_agent(self, agent):
+        user = self.context["request"].user
+        if agent.company_id != user.company_id:
+            raise serializers.ValidationError("Cet agent n'appartient pas à votre compagnie.")
+        if agent.role not in ROLES_EQUIPE_LOCALE:
+            raise serializers.ValidationError("Seuls les guichetiers et les bagagistes composent l'équipe d'une gare.")
+        existante = AffectationGare.objects.filter(agent=agent).select_related("gare").first()
+        if existante is not None and (self.instance is None or existante.pk != self.instance.pk):
+            raise serializers.ValidationError(f"Cet agent est déjà affecté à la gare {existante.gare.nom}.")
+        return agent
+
+    def validate_gare(self, gare):
+        user = self.context["request"].user
+        if gare.company_id != user.company_id:
+            raise serializers.ValidationError("Cette gare n'appartient pas à votre compagnie.")
+        if user.role not in ROLES_AFFECTATION_TOUTES_GARES and gare.chef_id != user.id:
+            raise serializers.ValidationError("Vous ne composez que l'équipe de la gare que vous dirigez.")
+        return gare
+
+
+class ChangementLigneSerializer(serializers.ModelSerializer):
+    ligne_nom = serializers.CharField(source="ligne.nom", read_only=True)
+    demandeur_nom = serializers.SerializerMethodField()
+    decide_par_nom = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChangementLigne
+        fields = [
+            "id", "ligne", "ligne_nom", "action", "motif", "jusqu_au", "demandeur", "demandeur_nom", "statut", "decide_par",
+            "decide_par_nom", "decide_le", "commentaire_decision", "cree_le",
+        ]
+        read_only_fields = fields
+
+    def get_demandeur_nom(self, obj):
+        return nom_complet(obj.demandeur)
+
+    def get_decide_par_nom(self, obj):
+        return nom_complet(obj.decide_par) if obj.decide_par_id else None

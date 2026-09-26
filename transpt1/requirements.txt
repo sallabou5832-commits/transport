@@ -1,17 +1,18 @@
+# Dépendances d'exécution (production). Les outils de test sont dans requirements-dev.txt.
 asgiref==3.12.1
-colorama==0.4.6
+# Carte temps réel (WebSocket, voir dashboard/consumers.py) : daphne sert le HTTP et les WebSocket du même
+# processus (`manage.py runserver` en développement, `daphne transport_coord.asgi:application` en
+# production — remplace le serveur WSGI, voir DEPLOIEMENT.md).
+channels==4.3.2
+daphne==4.2.3
 Django==6.1.1
 django-cors-headers==4.9.0
 djangorestframework==3.18.1
 djangorestframework_simplejwt==5.5.1
-iniconfig==2.3.0
-packaging==26.3
-pluggy==1.6.0
+# psycopg2-binary est déconseillé en production par ses auteurs (bibliothèque C embarquée, non mise à jour avec le
+# système) : sur le serveur, préférer `pip install psycopg2` compilé contre le libpq du système (voir DEPLOIEMENT.md).
 psycopg2-binary==2.9.13
-Pygments==2.21.0
 PyJWT==2.14.0
-pytest==9.1.1
-pytest-django==4.14.0
 python-decouple==3.8
 requests==2.34.2
 sqlparse==0.6.0

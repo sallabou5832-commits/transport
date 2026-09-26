@@ -21,7 +21,7 @@ ENVOI_SMS_PAR_FOURNISSEUR = {
 }
 
 
-def _envoyer(canal, destinataire, contenu, *, company, ticket, variables):
+def _envoyer(canal, destinataire, contenu, *, company, ticket, variables, colis=None):
     destinataire = normaliser_numero(destinataire)
     if canal == CanalNotification.WHATSAPP:
         fournisseur = FOURNISSEUR_TWILIO
@@ -38,6 +38,7 @@ def _envoyer(canal, destinataire, contenu, *, company, ticket, variables):
         return NotificationLog.objects.create(
             company=company,
             ticket=ticket,
+            colis=colis,
             destinataire=destinataire,
             canal=canal,
             fournisseur=fournisseur,
@@ -59,7 +60,7 @@ def _envoyer(canal, destinataire, contenu, *, company, ticket, variables):
     return tracer(StatutNotification.ENVOYE, reference_fournisseur=reference)
 
 
-def envoyer_sms(destinataire, contenu, *, company, ticket=None):
+def envoyer_sms(destinataire, contenu, *, company, ticket=None, colis=None):
     """Envoie un SMS (ou le simule) et trace systématiquement la tentative.
 
     Le fournisseur est choisi selon le numéro (voir ``choisir_fournisseur``). En
@@ -68,11 +69,11 @@ def envoyer_sms(destinataire, contenu, *, company, ticket=None):
     jamais déclencher de frais pendant le développement ou les tests.
     """
     return _envoyer(
-        CanalNotification.SMS, destinataire, contenu, company=company, ticket=ticket, variables=None
+        CanalNotification.SMS, destinataire, contenu, company=company, ticket=ticket, variables=None, colis=colis
     )
 
 
-def envoyer_whatsapp(destinataire, contenu, *, company, ticket=None, variables=None):
+def envoyer_whatsapp(destinataire, contenu, *, company, ticket=None, variables=None, colis=None):
     """Envoie un message WhatsApp (ou le simule) et trace la tentative.
 
     ``variables`` alimente le modèle WhatsApp approuvé quand il est configuré
@@ -85,6 +86,7 @@ def envoyer_whatsapp(destinataire, contenu, *, company, ticket=None, variables=N
         company=company,
         ticket=ticket,
         variables=variables,
+        colis=colis,
     )
 
 
@@ -97,7 +99,7 @@ def notifier_vente_ticket(ticket, depart):
     date = f"{depart.date_heure:%d/%m/%Y à %H:%M}"
     contenu = (
         f"Bonjour {ticket.passager_nom}, votre billet pour {depart.ligne.nom} le {date} "
-        f"est confirmé. Prix : {ticket.prix} FCFA. Bon voyage !"
+        f"est confirmé. Prix : {ticket.prix} FCFA. Code du billet : {ticket.code}. Bon voyage !"
     )
     variables = {"1": ticket.passager_nom, "2": depart.ligne.nom, "3": date, "4": str(ticket.prix)}
 

@@ -1,25 +1,41 @@
 import re
 from decimal import Decimal, InvalidOperation
 
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
-from rest_framework import viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from alertes.models import GraviteAlerte, TypeAlerte
+from alertes.services import alerter, chef_de_gare_du_depart
 from billetterie import planning, reservations
-from billetterie.models import Depart, DepartStatut, ModePaiement, ReservationHorsLigne, StatutTicket, Ticket
+from billetterie.caisse import calculer_caisse, cloturer
+from billetterie.models import (
+    ClotureCaisse,
+    Depart,
+    DepartStatut,
+    ModePaiement,
+    ReservationHorsLigne,
+    StatutTicket,
+    Ticket,
+)
+from colis import services as colis_services
+from colis.permissions import CanUseColis
 from billetterie.permissions import (
     IsDispatchManagerAlways,
     IsDispatchManagerOrReadOnly,
     IsGuichetierOrAboveAlways,
     IsGuichetierOrAboveWrite,
 )
-from billetterie.serializers import DepartSerializer, TicketSerializer
+from billetterie.serializers import ClotureCaisseSerializer, DepartSerializer, TicketSerializer
+from configuration.regles import NiveauAutomatisation
+from configuration.services import automatisation_au_moins, configuration_effective, exiger_fonction
 from core.dates import lire_date, lire_date_heure
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
@@ -93,6 +109,9 @@ class DepartViewSet(BilletterieViewSet):
         réservées, et sans autre départ proche ; un chauffeur proposé n'a pas d'autre départ
         proche. Réservé aux rôles de planification (c'est un annuaire des chauffeurs libres).
         """
+        # « Planning assisté » : le système propose, le régulateur valide. Optionnel, selon le niveau d'automatisation.
+        if not automatisation_au_moins(request.user, NiveauAutomatisation.ASSISTE):
+            raise PermissionDenied("Le planning assisté est désactivé pour votre poste : choisissez le remplaçant vous-même.")
         depart = self.get_object()
         vehicules = (
             planning.vehicules_disponibles(
@@ -107,6 +126,7 @@ class DepartViewSet(BilletterieViewSet):
         chauffeurs = planning.chauffeurs_disponibles(
             depart.company_id, depart.date_heure, exclure_depart_id=depart.pk
         ).exclude(pk=depart.chauffeur_id)
+        self._alerter_penurie(depart, vehicules_trouves=bool(vehicules), chauffeurs_trouves=bool(chauffeurs))
         return Response(
             {
                 "depart": depart.id,
@@ -119,6 +139,39 @@ class DepartViewSet(BilletterieViewSet):
                 ],
             }
         )
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="plan-chargement",
+        permission_classes=[IsAuthenticated, IsSameCompany, CanUseColis],
+    )
+    def plan_chargement(self, request, pk=None):
+        """Aide au chargement : répartition du poids des colis en soute (avant, milieu, arrière) pour équilibrer le car."""
+        return Response(colis_services.plan_chargement(self.get_object()))
+
+    @staticmethod
+    def _alerter_penurie(depart, *, vehicules_trouves, chauffeurs_trouves):
+        """Le régulateur cherche un remplaçant et il n'y en a aucun : c'est une pénurie, que le chef de gare et le
+        directeur des opérations doivent connaître sans que le régulateur ait à les appeler. Une seule alerte par
+        départ et par nature de pénurie."""
+        for manque, trouve in (("véhicule", vehicules_trouves), ("chauffeur", chauffeurs_trouves)):
+            if trouve:
+                continue
+            alerter(
+                depart.company,
+                type=TypeAlerte.PENURIE,
+                gravite=GraviteAlerte.ATTENTION,
+                titre=f"Pénurie de {manque} : {depart.ligne.nom}",
+                message=(
+                    f"Aucun {manque} libre pour remplacer sur le départ {depart.ligne.nom} du "
+                    f"{timezone.localtime(depart.date_heure):%d/%m à %H:%M}. Un arbitrage est nécessaire."
+                ),
+                roles=[Role.DIRECTEUR_EXPLOITATION],
+                destinataires=[chef_de_gare_du_depart(depart)],
+                objet=depart,
+                cle=f"penurie:{manque}:{depart.pk}",
+            )
 
     @action(
         detail=False,
@@ -163,6 +216,7 @@ class DepartViewSet(BilletterieViewSet):
         feuille dès la planification. Corps : ligne, vehicule, chauffeur, date_heure. Mêmes règles que POST /departs/."""
         if request.user.company_id is None:
             raise ValidationError("Un compte sans compagnie ne peut pas planifier de départ.")
+        exiger_fonction(request.user, "planification_departs")
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
@@ -267,7 +321,7 @@ class TicketViewSet(BilletterieViewSet):
                 int(data.get("depart")) == ticket.depart_id
                 and str(data.get("passager_nom", "")).strip() == ticket.passager_nom
                 and str(data.get("passager_telephone", "")).strip() == ticket.passager_telephone
-                and Decimal(str(data.get("prix"))) == ticket.prix
+                and (data.get("prix") in (None, "") or Decimal(str(data.get("prix"))) == ticket.prix)
                 and data.get("mode_paiement") == ticket.mode_paiement
             )
         except (TypeError, ValueError, InvalidOperation):
@@ -282,6 +336,7 @@ class TicketViewSet(BilletterieViewSet):
         traité AVANT toute validation : il doit réussir même si le départ est
         devenu complet ou terminé depuis la première vente.
         """
+        exiger_fonction(request.user, "vente_ticket")
         cle = self._cle_idempotence(request)
         if cle is None:
             return super().create(request, *args, **kwargs)
@@ -420,37 +475,92 @@ class TicketViewSet(BilletterieViewSet):
                 "Vous ne pouvez consulter que votre propre clôture de caisse."
             )
 
-        periode_qs = self.get_queryset().filter(
-            vendu_par_id=guichetier_id,
-            date_vente__date__gte=date_debut,
-            date_vente__date__lte=date_fin,
+        # La compagnie vient de l'utilisateur, pas de la requête : le superadmin (sans compagnie) voit toutes les caisses.
+        caisse = calculer_caisse(
+            None if user.company_id is None else user.company_id, guichetier_id, date_debut, date_fin
         )
-        # Un ticket annulé n'est pas une recette : la caisse ne compte que les ventes valides, et déclare les
-        # annulations à part (l'argent correspondant a dû être rendu).
-        base_qs = periode_qs.filter(statut=StatutTicket.VALIDE)
+        return Response({"guichetier": guichetier_id, "date_debut": date_debut, "date_fin": date_fin, **caisse})
 
-        def totals(queryset):
-            agg = queryset.aggregate(nombre=Count("id"), montant=Sum("prix"))
-            return agg["nombre"] or 0, agg["montant"] or Decimal("0")
 
-        nombre_annules, montant_annules = totals(periode_qs.filter(statut=StatutTicket.ANNULE))
-        nombre_tickets, montant_total = totals(base_qs)
-        nombre_especes, montant_especes = totals(
-            base_qs.filter(mode_paiement=ModePaiement.ESPECES)
-        )
-        nombre_mobile, montant_mobile = totals(
-            base_qs.filter(mode_paiement=ModePaiement.MOBILE_MONEY)
-        )
+class ClotureCaisseViewSet(
+    CompanyScopedQuerysetMixin, mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
+    """Clôtures de caisse : la photo figée de la caisse d'un guichetier pour un jour, transmise à son chef de gare.
 
-        return Response(
-            {
-                "guichetier": guichetier_id,
-                "date_debut": date_debut,
-                "date_fin": date_fin,
-                "nombre_tickets": nombre_tickets,
-                "montant_total": montant_total,
-                "especes": {"nombre": nombre_especes, "montant": montant_especes},
-                "mobile_money": {"nombre": nombre_mobile, "montant": montant_mobile},
-                "annulations": {"nombre": nombre_annules, "montant": montant_annules},
-            }
-        )
+    Selon le niveau d'automatisation du guichetier : **manuel**, il ne clôture pas lui-même (son chef le fait pour lui) ;
+    **assisté**, il clôture d'un geste (le système a déjà fait les totaux) ; **automatique**, la clôture se fait seule en
+    fin de journée (`manage.py cloturer_caisses`) et le guichetier n'a plus qu'à vérifier."""
+
+    queryset = ClotureCaisse.objects.select_related("guichetier", "company", "cloture_par")
+    serializer_class = ClotureCaisseSerializer
+    permission_classes = [IsAuthenticated, IsSameCompany, IsGuichetierOrAboveAlways]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if user.role == Role.GUICHETIER:  # chacun ne voit que sa caisse ; la supervision voit celles de la compagnie
+            queryset = queryset.filter(guichetier_id=user.id)
+        elif self.request.query_params.get("guichetier", "").isdigit():
+            queryset = queryset.filter(guichetier_id=int(self.request.query_params["guichetier"]))
+        date = lire_date(self.request.query_params.get("date"))
+        return queryset.filter(date=date) if date else queryset
+
+    def create(self, request, *args, **kwargs):
+        """Clôture la caisse du jour (ou de `date`). Le guichetier clôture la sienne ; la supervision clôture celle d'un
+        guichetier (`guichetier` = son identifiant), par exemple s'il a oublié ou si son niveau est « manuel »."""
+        user = request.user
+        if user.company_id is None:
+            raise ValidationError("Un compte sans compagnie ne clôture pas de caisse.")
+        exiger_fonction(user, "cloture_caisse")
+        date = lire_date(request.data.get("date")) or timezone.localdate()
+        if date > timezone.localdate():
+            raise ValidationError({"date": "On ne clôture pas la caisse d'un jour à venir."})
+
+        if user.role == Role.GUICHETIER:
+            if not automatisation_au_moins(user, NiveauAutomatisation.ASSISTE):
+                raise PermissionDenied(
+                    "Votre niveau est « manuel » : remettez votre caisse à votre chef de gare, qui la clôture."
+                )
+            guichetier = user
+        else:
+            try:
+                guichetier = get_user_model().objects.get(
+                    pk=int(request.data.get("guichetier")), company_id=user.company_id, role=Role.GUICHETIER
+                )
+            except (TypeError, ValueError, get_user_model().DoesNotExist):
+                raise ValidationError({"guichetier": "Indiquez le guichetier dont vous clôturez la caisse."})
+
+        cloture, creee = cloturer(guichetier, date, par=user)
+        if not creee:
+            raise ValidationError("La caisse de ce guichetier est déjà clôturée pour ce jour.")
+        return Response(self.get_serializer(cloture).data, status=201)
+
+    @action(detail=False, methods=["get"], url_path="etat")
+    def etat(self, request):
+        """L'état des caisses d'un jour (`?date=`, aujourd'hui par défaut) : pour chaque guichetier concerné, ses totaux en
+        direct et sa clôture s'il y en a une. Le guichetier ne voit que la sienne ; le chef de gare, celles de son équipe ;
+        les autres rôles de supervision, toute la compagnie."""
+        user = request.user
+        if user.company_id is None:
+            return Response([])
+        date = lire_date(request.query_params.get("date")) or timezone.localdate()
+        guichetiers = get_user_model().objects.filter(company_id=user.company_id, role=Role.GUICHETIER)
+        if user.role == Role.GUICHETIER:
+            guichetiers = guichetiers.filter(pk=user.pk)
+        elif user.role == Role.CHEF_GARE:
+            guichetiers = guichetiers.filter(affectation_gare__gare__chef=user)
+        clotures = {c.guichetier_id: c for c in ClotureCaisse.objects.filter(company_id=user.company_id, date=date)}
+        etat = []
+        for guichetier in guichetiers.order_by("username"):
+            cloture = clotures.get(guichetier.pk)
+            etat.append(
+                {
+                    "guichetier": guichetier.pk,
+                    "guichetier_nom": nom_complet(guichetier),
+                    "date": date,
+                    "niveau_automatisation": configuration_effective(guichetier)["niveau_automatisation"],
+                    "caisse": calculer_caisse(user.company_id, guichetier.pk, date, date),
+                    "cloture": self.get_serializer(cloture).data if cloture else None,
+                }
+            )
+        return Response(etat)

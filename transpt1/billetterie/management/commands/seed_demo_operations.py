@@ -10,7 +10,7 @@ from core.demo_garde import refuser_hors_developpement
 from core.models import Company
 from maintenance.models import OrdreReparation, Piece, StatutOrdreReparation
 from personnel_roulant.models import ChecklistDepart, EtatChecklist, FeuilleDeRoute
-from reseau.models import Ligne, Vehicule
+from reseau.models import AffectationGare, Ligne, Vehicule
 
 
 class Command(BaseCommand):
@@ -38,7 +38,7 @@ class Command(BaseCommand):
 
         try:
             chauffeur = User.objects.get(username="chauffeur_stc")
-            chauffeur_relais = User.objects.get(username="chauffeur_relais_stc")
+            mecanicien = User.objects.get(username="mecanicien_stc")
             guichetier = User.objects.get(username="guichetier_stc")
         except User.DoesNotExist as exc:
             raise CommandError(
@@ -110,6 +110,14 @@ class Command(BaseCommand):
             vehicule=vehicule_atelier,
             company=stc,
             description="Révision moteur programmée.",
-            defaults={"statut": StatutOrdreReparation.OUVERT, "mecanicien": chauffeur_relais},
+            defaults={"statut": StatutOrdreReparation.OUVERT, "mecanicien": mecanicien},
         )
         self.stdout.write(self.style.SUCCESS(f"Ordre de réparation prêt : {ordre}"))
+
+        # L'équipe locale de la gare de départ, telle que le chef de gare la composerait (guichetier et bagagiste).
+        for username in ("guichetier_stc", "bagagiste_stc"):
+            agent = User.objects.get(username=username)
+            AffectationGare.objects.get_or_create(
+                agent=agent, defaults={"gare": ligne.gare_depart, "company": stc}
+            )
+        self.stdout.write(self.style.SUCCESS(f"Équipe de la gare {ligne.gare_depart.nom} prête."))

@@ -5,6 +5,7 @@ qu'en **HTTPS** : le TLS est terminé par un *reverse proxy* (Caddy ou nginx) qu
 
 ```
 téléphone / navigateur ──HTTPS──▶ proxy (Caddy, nginx) ──HTTP──▶ gunicorn / Django (127.0.0.1:8000) ──▶ PostgreSQL
+                              └──WSS (carte temps réel)──▶ daphne / Django (même port, voir §1 et §5)
                                      └── sert aussi le site web (frontend/dist) et /static/ (administration)
 ```
 
@@ -12,9 +13,11 @@ téléphone / navigateur ──HTTPS──▶ proxy (Caddy, nginx) ──HTTP─
 
 - [ ] Un serveur avec **Python 3.12 ou plus** (Django 6.1), **PostgreSQL**, et un nom de domaine pointant dessus
       (ports 80 et 443 ouverts). Le port 8000 (Django) et le port PostgreSQL restent **fermés** au public.
-- [ ] Le code sur le serveur, un environnement virtuel, puis :
-      `pip install -r requirements.txt` et un serveur WSGI : `pip install gunicorn` (Linux) ou `pip install waitress`
-      (Windows). Il n'est pas dans `requirements.txt` : ne lancez **jamais** `runserver` en production.
+- [ ] Le code sur le serveur, un environnement virtuel, puis `pip install -r requirements.txt`, qui installe déjà
+      **daphne** (serveur ASGI : HTTP et WebSocket du même processus, voir §4 et §5) — ne lancez **jamais**
+      `runserver` en production. Sans la carte temps réel, un serveur WSGI classique (`pip install gunicorn`
+      sous Linux, `pip install waitress` sous Windows) reste possible : la carte retombe alors sur son
+      rafraîchissement périodique (60 s) sans rien casser, voir `frontend/src/api/useFluxCarte.js`.
 - [ ] Sur la machine de build : Node.js 18+ (site web) et Flutter (application mobile).
 
 ## 2. Variables d'environnement
@@ -41,6 +44,7 @@ un fichier `.env` **lisible par le seul compte du service** (`chmod 600`). Ne co
 | `DJANGO_HSTS_SECONDS` | `2592000` (30 jours) au début ; allonger jusqu'à `31536000` une fois le HTTPS validé. Ne pas mettre 0. |
 | `DJANGO_STATIC_ROOT` | Où `collectstatic` rassemble les fichiers de l'administration (défaut : `staticfiles/` du projet). |
 | `DJANGO_LOG_LEVEL` | `WARNING` par défaut ; `INFO` pour plus de détails. Les erreurs 500 sont écrites sur la sortie d'erreur. |
+| `DJANGO_CHANNEL_LAYER_REDIS_URL` | Carte temps réel (§5) : vide par défaut (une seule instance suffit pour un pilote). Avec plusieurs workers `daphne` ou plusieurs machines, `pip install channels-redis` puis `redis://localhost:6379/0` — sans cela, un navigateur servi par le worker A ne reçoit pas les positions reçues par le worker B. |
 
 **Sauvegardes** — voir §3 : `BACKUP_DIR` (défaut `transpt1/sauvegardes/`, à placer sur un autre disque),
 `BACKUP_RETENTION_DAYS` (14), `BACKUP_MIN_KEEP` (3), `BACKUP_MAX_AGE_HOURS` (26), `BACKUP_POST_COMMAND` (envoi hors du serveur),
@@ -49,6 +53,20 @@ un fichier `.env` **lisible par le seul compte du service** (`chmod 600`). Ne co
 **Métier** (valeurs par défaut sensées) : `BILLETTERIE_QUOTA_HORS_LIGNE` (2 places réservées par guichetier et par
 départ ; 0 désactive la vente hors ligne garantie), `BILLETTERIE_RESERVATION_TTL_HEURES` (12),
 `BILLETTERIE_HORIZON_HORS_LIGNE_HEURES` (24).
+
+**Réglages d'exploitation** (valeurs par défaut sensées, à ajuster au pilote) :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `CONNEXION_LIMITE_COMPTE`, `CONNEXION_LIMITE_ADRESSE` | `10/min`, `30/min` | Limitation des essais de connexion (par couple adresse + identifiant, et par adresse) : 429 au-delà. **Chaque worker a ses compteurs** tant que le cache n'est pas partagé (ligne suivante). |
+| `DJANGO_CACHE_BACKEND`, `DJANGO_CACHE_LOCATION` | mémoire du processus | Cache des compteurs. Avec plusieurs workers ou machines : `django.core.cache.backends.db.DatabaseCache` et `cache_table`, puis `python manage.py createcachetable` (une fois). |
+| `SUIVI_SEUIL_FATIGUE_MINUTES` | `270` (4 h 30) | Conduite continue au-delà de laquelle l'alerte de fatigue propose un relais. |
+| `NOTIFICATIONS_CANAUX_COLIS` | `sms,whatsapp` | Canaux du code de retrait et des étapes d'un colis. Le message WhatsApp part en texte libre : aucun modèle approuvé n'est prévu pour les colis. |
+| `ENTRETIEN_PREAVIS_JOURS`, `ENTRETIEN_PREAVIS_KM` | `15`, `1000` | Un entretien préventif est « bientôt dû » à moins de N jours ou N km de son échéance : l'atelier est alerté et l'ordre de réparation s'ouvre. |
+| `RENOUVELLEMENT_KM`, `RENOUVELLEMENT_ORDRES_12_MOIS`, `RENOUVELLEMENT_JOURS_IMMOBILISE_12_MOIS` | `600000`, `8`, `60` | Seuils d'usure du rapport de besoin de renouvellement de la flotte (deux seuils atteints = « à renouveler »). |
+| `MEDIATION_SEUIL_LITIGE` | `grave` | Gravité (`faible`, `moyenne`, `grave`, `critique`) à partir de laquelle une doléance encore ouverte du canal de médiation prévient le responsable juridique d'un risque de litige social (le PDG aussi si elle est critique). |
+| `DJANGO_MEDIA_ROOT` | `media/` du projet | **Où sont rangées les pièces jointes** (pièces des sinistres, fichiers des modèles de documents juridiques). À placer hors du dossier du code, sur un disque sauvegardé (§3). Le serveur web ne doit **pas** servir ce dossier : seule l'API rend les fichiers, après contrôle des droits. |
+| `PIECES_JOINTES_TAILLE_MAX_MO` | `5` | Taille maximale d'une pièce jointe. Le proxy doit accepter au moins cette taille (§5 : `client_max_body_size`). |
 
 **Notifications aux voyageurs** — voir le §8. `NOTIFICATIONS_SIMULATION_MODE` vaut `True` par défaut : **aucun message
 réel n'est envoyé** tant que vous ne le passez pas explicitement à `False`.
@@ -81,6 +99,10 @@ renseignée, l'envoie hors du serveur. Les outils `pg_dump` / `pg_restore` doive
       reçoit le chemin du fichier en dernier argument. Une sauvegarde sur le même disque que la base ne protège pas d'une panne
       de ce disque, d'un vol ou d'un rançongiciel. **Chiffrer avant l'envoi** (les sauvegardes contiennent noms et numéros de
       téléphone des voyageurs) : par exemple `rclone` avec un remote `crypt`, ou `age`/`gpg` dans un petit script.
+- [ ] **Sauvegarder aussi les pièces jointes** : la sauvegarde de la base ne contient **pas** les fichiers (constats, photos, expertises,
+      modèles de documents) rangés dans `DJANGO_MEDIA_ROOT`. Les copier avec la même fréquence et la même chaîne hors du serveur que la base
+      (par exemple `rclone sync` ou `rsync` de ce dossier, chiffré), dans le `BACKUP_POST_COMMAND` ou une seconde tâche. Une restauration
+      complète remet la base **et** ce dossier de la même date : sinon un dossier de sinistre pointerait vers un fichier absent.
 - [ ] **Surveiller** : `python manage.py etat_sauvegarde` sort en erreur (code 1) si la dernière sauvegarde a échoué ou date
       de plus de `BACKUP_MAX_AGE_HOURS` heures (26 par défaut). À brancher sur votre supervision (Uptime Kuma, cron + mail…) :
       une sauvegarde qui échoue en silence est pire qu'aucune, on ne s'en aperçoit qu'au moment d'en avoir besoin.
@@ -116,10 +138,15 @@ python manage.py createsuperuser         # le premier compte : rôle « superadm
       User=transport
       WorkingDirectory=/srv/transport/transpt1
       EnvironmentFile=/srv/transport/transpt1/.env
-      ExecStart=/srv/transport/venv/bin/gunicorn transport_coord.wsgi --bind 127.0.0.1:8000 --workers 3
+      ExecStart=/srv/transport/venv/bin/daphne -b 127.0.0.1 -p 8000 transport_coord.asgi:application
       Restart=on-failure
       ```
-      (Windows : `waitress-serve --listen=127.0.0.1:8000 transport_coord.wsgi:application`.)
+      (Windows : pas d'équivalent Windows testé pour daphne ; `waitress-serve --listen=127.0.0.1:8000
+      transport_coord.wsgi:application` sert le HTTP seul, sans la carte temps réel — voir §1.)
+      Une seule instance `daphne` suffit pour un pilote (elle gère ses connexions WebSocket de façon
+      asynchrone, pas par processus comme gunicorn) ; pour en faire tourner plusieurs derrière le proxy
+      (plus de trafic), `DJANGO_CHANNEL_LAYER_REDIS_URL` devient nécessaire (§2) : sans lui, chacune ignore
+      les positions reçues par les autres.
 
 ### Créer les vraies données, dans l'administration (`https://api.votre-domaine.ci/admin/`)
 
@@ -149,7 +176,8 @@ api.votre-domaine.ci {
         root * /srv/transport/transpt1/staticfiles
         file_server
     }
-    reverse_proxy 127.0.0.1:8000
+    reverse_proxy 127.0.0.1:8000   # daphne comprend le HTTP et le WebSocket (/ws/...) sur le même port : rien de
+                                    # plus à déclarer ici, Caddy relaie une bascule WebSocket comme n'importe quelle requête.
 }
 
 app.votre-domaine.ci {
@@ -159,7 +187,9 @@ app.votre-domaine.ci {
 }
 ```
 
-Caddy obtient et renouvelle seul les certificats, redirige le HTTP vers HTTPS et pose `X-Forwarded-Proto`.
+Caddy obtient et renouvelle seul les certificats, redirige le HTTP vers HTTPS et pose `X-Forwarded-Proto`. Il ne limite pas la taille
+des envois par défaut : le contrôle de `PIECES_JOINTES_TAILLE_MAX_MO` est fait par l'application (ajouter `request_body { max_size 6MB }` dans
+le bloc `api.votre-domaine.ci` pour couper plus tôt).
 
 ### Alternative : nginx
 
@@ -172,13 +202,26 @@ server {
     ssl_certificate     /etc/letsencrypt/live/api.votre-domaine.ci/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/api.votre-domaine.ci/privkey.pem;
 
+    client_max_body_size 6m;                   # pièces jointes : PIECES_JOINTES_TAILLE_MAX_MO (5 Mo) + le corps du formulaire
+
     location /static/ { alias /srv/transport/transpt1/staticfiles/; }
 
-    location = /api/auth/login/ {              # freine les essais de mots de passe
+    location = /api/auth/login/ {              # freine encore plus les essais de mots de passe, au niveau du proxy
+                                                # (l'application limite déjà elle-même, voir « Limites connues avant le pilote » et `core/throttles.py`)
         limit_req zone=connexion burst=20 nodelay;
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto https;
+    }
+    location /ws/ {                             # carte temps réel (daphne, voir §4) : bascule WebSocket explicite,
+                                                 # contrairement à Caddy qui la relaie sans configuration particulière
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 3600s;               # une connexion WebSocket reste ouverte : ne pas la couper comme une requête HTTP normale
     }
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -189,9 +232,16 @@ server {
 server { listen 80; server_name api.votre-domaine.ci; return 301 https://$host$request_uri; }
 ```
 
-- [ ] **Limiter les essais de connexion** : l'application n'a pas de limitation intégrée (`/api/auth/login/`). Avec
-      Caddy, prévoir un module de limitation ; avec nginx, le bloc ci-dessus. Gardez une limite généreuse : sur
-      les réseaux mobiles, de nombreux agents partagent la même adresse IP publique.
+- [ ] **Limiter encore plus les essais de connexion au niveau du proxy** (`/api/auth/login/`) : l'application limite déjà
+      elle-même les tentatives par compte et par adresse (429, voir « Limites connues avant le pilote » et `core/throttles.py`), mais un cache non partagé
+      entre plusieurs workers affaiblit cette limite d'autant (voir « Limites connues avant le pilote ») — une limitation côté proxy reste un filet de
+      sécurité supplémentaire. Avec Caddy, prévoir un module de limitation ; avec nginx, le bloc ci-dessus. Gardez une
+      limite généreuse : sur les réseaux mobiles, de nombreux agents partagent la même adresse IP publique.
+- [ ] **Ne pas journaliser la chaîne de requête complète des WebSocket** (`/ws/...?token=...`) : le jeton d'accès y
+      transite en clair (un navigateur ne peut pas poser d'en-tête `Authorization` sur un WebSocket, voir
+      `dashboard/ws_auth.py`). Un journal d'accès qui inclut la chaîne de requête (comportement par défaut de
+      beaucoup de configurations) l'enregistrerait donc en clair pendant sa durée de vie (30 minutes). Retirer la
+      chaîne de requête du format de journal pour ce chemin, ou l'exclure du journal d'accès.
 
 ## 6. Règle de sécurité essentielle
 
@@ -261,6 +311,33 @@ curl -I https://app.votre-domaine.ci/dashboard/finance           # 200 : le site
 
 ## 10. Exploitation courante
 
+### Tâches planifiées — à installer **avant** d'ouvrir aux utilisateurs
+
+Ces commandes font vivre les alertes, les clôtures et le jeu sans qu'un agent ait à ouvrir l'application. Toutes sont
+**rejouables sans doublon** (chaque situation porte une clé) : mieux vaut les lancer trop souvent que pas assez.
+
+| Commande | Fréquence conseillée | Ce qu'elle fait |
+|---|---|---|
+| `python manage.py generer_alertes` | toutes les 5 à 10 minutes | Alertes automatiques de chaque compagnie : seuils critiques du PDG (ponctualité, pannes, recettes), départs à risque de retard, échéances d'assurance (30 j, 7 j, expirée), conducteurs fatigués, **entretiens préventifs à échéance (ouvre l'ordre de réparation au mécanicien le moins chargé)**, véhicules à renouveler, **budget carburant à 80 % puis dépassé**, **factures à payer (rappels à 7 jours, 1 jour, en retard)**, **formations obligatoires à renouveler ou expirées (sécurité routière OSER, permis, visite médicale : DRH, QHSE et agent)**, **contrats à durée déterminée qui se terminent sous 30 jours**, **doléances au seuil de litige social non encore signalées au juridique**. |
+| `python manage.py cloturer_caisses` | chaque soir (23 h 30) | Clôture les caisses des guichetiers en niveau d'automatisation « automatique » qui ont vendu sans clôturer, et prévient leur chef de gare. `--date AAAA-MM-JJ` rattrape un jour manqué. |
+| `python manage.py evaluer_gamification` | chaque nuit | Enregistre les missions accomplies et les badges de tous les agents, même de ceux qui n'ont pas ouvert l'application (sinon l'évaluation se fait à la première consultation). |
+| `python manage.py purger_positions_gps` | chaque nuit | Supprime les relevés GPS plus vieux que `POSITIONS_RETENTION_JOURS` (30 jours par défaut) : sans elle, la table des positions ne fait que grossir et ralentit la carte temps réel. `--jours N` remplace le réglage pour cet appel. |
+| `python manage.py sauvegarde_base` | chaque nuit | Voir §3. |
+
+Exemple `crontab` (compte du service, dans le dossier du projet, environnement chargé) :
+
+```cron
+*/10 * * * *  cd /srv/transport/transpt1 && ./venv/bin/python manage.py generer_alertes  >> /var/log/transport/alertes.log 2>&1
+30 23 * * *   cd /srv/transport/transpt1 && ./venv/bin/python manage.py cloturer_caisses >> /var/log/transport/caisses.log 2>&1
+15 2 * * *    cd /srv/transport/transpt1 && ./venv/bin/python manage.py evaluer_gamification >> /var/log/transport/jeu.log 2>&1
+45 2 * * *    cd /srv/transport/transpt1 && ./venv/bin/python manage.py purger_positions_gps >> /var/log/transport/positions.log 2>&1
+```
+
+Sous Windows : Planificateur de tâches, une tâche par ligne. **Vérifier** après un jour de fonctionnement que les alertes se
+créent (cloche d'alertes d'un compte de test) et que `cloturer_caisses` a clôturé les caisses attendues.
+
+### Le reste
+
 - **Mise à jour** : sauvegarde de la base → récupérer le code → `pip install -r requirements.txt` → `python manage.py
   migrate` → `python manage.py collectstatic --noinput` → redémarrer le service. Relire les migrations avant de les appliquer.
 - **Sauvegardes** : `manage.py etat_sauvegarde` branché sur la supervision (alerte si échec ou trop ancienne) ; restauration
@@ -269,21 +346,53 @@ curl -I https://app.votre-domaine.ci/dashboard/finance           # 200 : le site
   d'en archiver les entrées de plus de 12 mois (export puis suppression par l'administrateur de la base — l'application
   elle-même ne supprime jamais).
 - **Tickets** : un ticket vendu ne se modifie ni ne se supprime ; une erreur se corrige par **annulation motivée** (chef de
-  gare ou direction), tracée dans le journal, et sort des recettes.
+  gare ou direction), tracée dans le journal, et sort des recettes. Chaque ticket porte un **code** (10 caractères) : la
+  migration `billetterie 0007` en a donné un, unique, aux tickets déjà vendus (relue et testée sur 50 tickets ; la relire sur
+  une copie de la vraie base avant le pilote).
+- **Compte d'un agent** : le PDG suspend un compte depuis « Pilotage » (motif obligatoire). Les sessions ouvertes sont coupées
+  à la requête suivante ; rien n'est supprimé. Pour un départ définitif, suspendre plutôt que supprimer (l'historique des
+  ventes, des contrôles et du journal d'audit garde l'auteur).
+- **Ligne fermée** : le directeur des opérations ou le PDG ferme (jusqu'à un jour donné, ou jusqu'à réouverture) ; la ligne
+  refuse alors planification et vente. Les départs déjà planifiés ne sont pas annulés d'office : l'alerte dit combien sont à
+  réaffecter.
+- **Kilométrage** : le technique relève le compteur des véhicules (page Technique) : sans relevé, seuls les entretiens en jours
+  se déclenchent.
 - **Secrets compromis** : changer `DJANGO_SECRET_KEY` (déconnecte tout le monde), les mots de passe de la base, les clés
   des fournisseurs de SMS ; désactiver les comptes concernés.
+- **Pièces jointes** : elles vivent dans `DJANGO_MEDIA_ROOT` (voir §2 et §3). Le serveur n'accepte que PDF, PNG, JPEG, Word et Excel dont le
+  contenu correspond à l'extension, sous un nom aléatoire, et ne les rend qu'à un utilisateur autorisé de la même compagnie ; **il n'analyse
+  pas les fichiers à la recherche de virus** : les ouvrir depuis un poste protégé.
+- **Données RH et médiation sociale** : dossiers du personnel, évaluations, mesures disciplinaires et doléances sont des données personnelles
+  sensibles. L'accès suit la hiérarchie (`PERMISSIONS.md` §20) et chaque écriture figure au journal d'audit. Une doléance n'est lue que par son
+  déposant et le DRH ; le juridique n'en voit que l'objet, le contenu et le poste de l'auteur. Prévoir, avec votre conseil juridique, la durée
+  de conservation et l'information des agents.
 - **Données personnelles** : la plateforme conserve nom et téléphone des voyageurs (tickets). Prévoir l'information
   des voyageurs et les formalités de protection des données applicables (à voir avec votre conseil juridique).
 
 ## Limites connues avant le pilote
 
-- **Pas de limitation des essais de connexion dans l'application** (à faire au niveau du proxy, §5) ni d'authentification
-  à deux facteurs ; les jetons de connexion du site web sont conservés dans le navigateur (`localStorage`).
-- **Un seul processus de cache** par instance : ne pas compter sur un cache partagé entre plusieurs machines.
-- **Aucune alerte en temps réel** : un incident déclaré apparaît sur les tableaux de bord (qui se rafraîchissent chaque
-  minute) mais ne déclenche ni notification ni appel.
+- **Limitation des connexions** : l'application refuse (429) au-delà de `CONNEXION_LIMITE_COMPTE` / `_ADRESSE`, mais ses compteurs
+  sont dans le cache : **par worker** tant que `DJANGO_CACHE_BACKEND` n'est pas un cache partagé (§2). Doubler par la
+  limitation du proxy (§5) reste conseillé. Toujours pas d'authentification à deux facteurs ; les jetons de connexion du site
+  web sont conservés dans le navigateur (`localStorage`).
+- **Alertes internes seulement** : les alertes inter-pôles (blocage, panne, stock bas, fatigue, infraction…) s'affichent dans la
+  cloche de chaque poste (rafraîchie toutes les minutes) mais ne déclenchent ni notification poussée, ni SMS, ni appel : un
+  agent doit avoir l'application ouverte. Sans les tâches planifiées ci-dessus, les alertes automatiques ne se créent pas.
+- **Suivi GPS** : la position est envoyée par le navigateur du chauffeur (page web) ; cette chaîne a été jouée dans un navigateur
+  de test avec une position simulée, jamais sur un vrai téléphone en roulant. La carte du réseau est un schéma (gares reliées
+  par des lignes), sans fond de carte.
+- **Colis** : pas de reçu papier ; le code de retrait n'est envoyé que par SMS/WhatsApp (texte libre, sans modèle WhatsApp approuvé).
+- **Pas de moteur vocal** : la préférence « vocal » d'un agent est enregistrée mais aucune commande ni lecture vocale n'est
+  disponible (ni en français, ni en langues locales).
 - **Mobile** : l'APK *release* se compile et se signe, mais il n'a **jamais été lancé sur un appareil** : le protocole
   d'essai (`mobile/TEST_TELEPHONES.md`) reste à exécuter sur de vrais téléphones. Le chauffeur ne peut pas encore démarrer ni
-  terminer sa feuille de route depuis le mobile (web uniquement).
+  terminer sa feuille de route depuis le mobile (web uniquement). **L'application mobile n'a pas été mise à jour** avec les
+  nouveautés du serveur : elle envoie toujours un prix à la vente (elle n'utilise pas le tarif de la ligne, donc une vente
+  au mauvais prix y serait refusée par le serveur), et n'a ni suivi GPS, ni contrôle des billets, ni colis, ni alertes.
+  `flutter analyze` et `flutter test` n'ont pas été relancés depuis ces changements.
+- **RH, finance et juridique** : ces modules ont été essayés dans un navigateur avec des données de démonstration, jamais avec de vrais
+  agents ni de vraies factures. Ne sont **pas** couverts : le solde de congés (jours acquis et pris), la paie, la signature électronique des
+  documents, un échange automatique avec un organisme de formation externe (la formation OSER est suivie par la compagnie elle-même, sans
+  lien avec un système extérieur), l'anonymat d'une doléance (elle est nominative, confidentielle).
 - **Listes non paginées** : les listes de l'API (tickets, départs, incidents…) renvoient tout ; à surveiller si une compagnie
   dépasse quelques milliers de tickets par mois (le journal d'audit, lui, est paginé).

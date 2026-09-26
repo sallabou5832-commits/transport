@@ -24,12 +24,12 @@ def vehicule_bloque_a(db, company_a):
 
 @pytest.fixture
 def mecanicien_a(user_factory, company_a):
-    return user_factory("mecanicien_a", Role.BAGAGISTE, company=company_a)
+    return user_factory("mecanicien_a", Role.MECANICIEN, company=company_a)
 
 
 @pytest.fixture
 def mecanicien_a2(user_factory, company_a):
-    return user_factory("mecanicien_a2", Role.BAGAGISTE, company=company_a)
+    return user_factory("mecanicien_a2", Role.MECANICIEN, company=company_a)
 
 
 @pytest.fixture

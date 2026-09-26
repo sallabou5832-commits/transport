@@ -5,9 +5,16 @@ from rest_framework import serializers
 from billetterie import planning
 from core.models import Role
 from core.serializers import CompanySerializer, nom_complet
-from billetterie.models import Depart, DepartStatut, Ticket
+from billetterie.models import ClotureCaisse, Depart, DepartStatut, Ticket
+from rh.services import conge_approuve_de
 
 CHAUFFEUR_ROLES = {Role.CHAUFFEUR_PRINCIPAL, Role.CHAUFFEUR_RELAIS}
+
+
+def message_ligne_fermee(ligne, consequence):
+    jusqu = f" jusqu'au {ligne.fermee_jusqu_au:%d/%m/%Y}" if ligne.fermee_jusqu_au else ""
+    motif = f" ({ligne.motif_fermeture})" if ligne.motif_fermeture else ""
+    return f"La ligne {ligne.nom} est fermée{jusqu}{motif} : {consequence}."
 
 
 class DepartSerializer(serializers.ModelSerializer):
@@ -19,12 +26,15 @@ class DepartSerializer(serializers.ModelSerializer):
     # qui n'a pas réservé (= restantes - réservées).
     places_reservees = serializers.IntegerField(read_only=True)
     places_disponibles = serializers.IntegerField(read_only=True)
+    # Tarif de la ligne (vide si elle n'en a pas) : de quoi préremplir la vente sans appeler une autre route.
+    tarif = serializers.DecimalField(source="ligne.tarif", max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = Depart
         fields = [
             "id",
             "ligne",
+            "tarif",
             "vehicule",
             "chauffeur",
             "chauffeur_nom",
@@ -87,6 +97,9 @@ class DepartSerializer(serializers.ModelSerializer):
                     {field_name: "N'appartient pas à votre compagnie."}
                 )
 
+        if ligne is not None and ligne.est_fermee and (self.instance is None or ligne.pk != self.instance.ligne_id):
+            raise serializers.ValidationError({"ligne": message_ligne_fermee(ligne, "on n'y planifie plus de départ")})
+
         date_heure = attrs.get("date_heure") or getattr(self.instance, "date_heure", None)
         self._verifier_reaffectation(vehicule, chauffeur, date_heure)
         self._verifier_planning(vehicule, chauffeur, date_heure)
@@ -121,7 +134,10 @@ class DepartSerializer(serializers.ModelSerializer):
                     erreurs["vehicule"] = message(conflit, "Ce véhicule est", "un autre véhicule")
         if chauffeur is not None and date_heure is not None and (chauffeur_change or heure_change):
             conflit = planning.depart_en_conflit(chauffeur=chauffeur, date_heure=date_heure, exclure_depart_id=exclure)
-            if conflit:
+            conge = conge_approuve_de(chauffeur, timezone.localtime(date_heure).date())
+            if conge:
+                erreurs["chauffeur"] = f"Ce chauffeur est en congé du {conge.debut:%d/%m} au {conge.fin:%d/%m} : choisissez un autre chauffeur."
+            elif conflit:
                 erreurs["chauffeur"] = message(conflit, "Ce chauffeur est", "un autre chauffeur")
         if erreurs:
             raise serializers.ValidationError(erreurs)
@@ -159,12 +175,20 @@ class DepartSerializer(serializers.ModelSerializer):
                 )
 
 
+# Ceux qui peuvent vendre à un autre prix que le tarif de la ligne (avec un motif) : la supervision, pas le guichet.
+ROLES_DEROGATION_TARIF = {
+    Role.CHEF_GARE, Role.CHEF_LIGNE, Role.DIRECTEUR_EXPLOITATION, Role.SECRETAIRE_GENERAL, Role.PDG,
+}
+MOTIF_DEROGATION_MIN = 5
+
+
 class TicketSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
     vendu_par = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Ticket
+        extra_kwargs = {"prix": {"required": False}}
         fields = [
             "id",
             "depart",
@@ -172,9 +196,13 @@ class TicketSerializer(serializers.ModelSerializer):
             "passager_nom",
             "passager_telephone",
             "prix",
+            "prix_tarif",
+            "motif_derogation",
             "mode_paiement",
             "vendu_par",
             "date_vente",
+            "code",
+            "utilise_le",
             "statut",
             "annule_par",
             "annule_le",
@@ -183,7 +211,35 @@ class TicketSerializer(serializers.ModelSerializer):
         # Le statut ne se change que par l'action `annuler` : jamais à la création ni par une modification.
         read_only_fields = [
             "company", "vendu_par", "date_vente", "statut", "annule_par", "annule_le", "motif_annulation",
+            "prix_tarif", "code", "utilise_le",
         ]
+
+    def validate(self, attrs):
+        """Le prix d'un billet est le tarif de sa ligne. Sans prix dans la requête, c'est le tarif ; avec un prix
+        différent, seule la supervision peut déroger, et elle doit dire pourquoi. Une ligne sans tarif garde le prix saisi."""
+        tarif = attrs["depart"].ligne.tarif
+        prix = attrs.get("prix")
+        motif = (attrs.get("motif_derogation") or "").strip()
+        if tarif is None:
+            if prix is None:
+                raise serializers.ValidationError({"prix": "Ce champ est obligatoire : cette ligne n'a pas de tarif."})
+            attrs["motif_derogation"] = motif
+            return attrs
+
+        attrs["prix_tarif"] = tarif
+        if prix is None or prix == tarif:
+            attrs["prix"], attrs["motif_derogation"] = tarif, ""
+            return attrs
+        if self.context["request"].user.role not in ROLES_DEROGATION_TARIF:
+            raise serializers.ValidationError(
+                {"prix": f"Le tarif de cette ligne est de {tarif:.0f} FCFA : seul un chef peut vendre à un autre prix."}
+            )
+        if len(motif) < MOTIF_DEROGATION_MIN:
+            raise serializers.ValidationError(
+                {"motif_derogation": f"Vente à un autre prix que le tarif ({tarif:.0f} FCFA) : indiquez le motif."}
+            )
+        attrs["motif_derogation"] = motif
+        return attrs
 
     def validate_depart(self, depart):
         request = self.context["request"]
@@ -191,4 +247,28 @@ class TicketSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Ce départ n'appartient pas à votre compagnie.")
         if depart.statut == DepartStatut.TERMINE:
             raise serializers.ValidationError("Ce départ est terminé, vente impossible.")
+        if depart.ligne.est_fermee:
+            raise serializers.ValidationError(message_ligne_fermee(depart.ligne, "vente impossible"))
         return depart
+
+
+class ClotureCaisseSerializer(serializers.ModelSerializer):
+    guichetier_nom = serializers.SerializerMethodField()
+    cloture_par_nom = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClotureCaisse
+        fields = [
+            "id", "guichetier", "guichetier_nom", "date", "nombre_tickets", "montant_total", "especes_nombre",
+            "especes_montant", "mobile_nombre", "mobile_montant", "annulations_nombre", "annulations_montant",
+            "cloture_par", "cloture_par_nom", "cloture_le", "automatique",
+        ]
+        read_only_fields = fields
+
+    def get_guichetier_nom(self, obj):
+        return nom_complet(obj.guichetier)
+
+    def get_cloture_par_nom(self, obj):
+        if obj.cloture_par:
+            return nom_complet(obj.cloture_par)
+        return "Automatique" if obj.automatique else None
