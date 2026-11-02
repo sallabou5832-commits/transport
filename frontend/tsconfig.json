@@ -1,0 +1,16 @@
+{
+  // Réglages pour l'éditeur seulement (rien ne compile TypeScript ici : Playwright lit ses fichiers .ts tels quels). Ils
+  // donnent aux fichiers de e2e/ et à playwright.config.ts les types de Node et de Playwright.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["playwright.config.ts", "e2e/**/*.ts"]
+}

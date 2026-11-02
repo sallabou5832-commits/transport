@@ -126,6 +126,18 @@ jobs:
           name: captures-e2e
           path: frontend/e2e/captures
           if-no-files-found: ignore
+      - name: Parcours Playwright Test
+        working-directory: frontend
+        env:
+          E2E_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
+        run: npm run e2e:pw
+      - name: Rapport Playwright
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-playwright
+          path: frontend/playwright-report
+          if-no-files-found: ignore
 
   mobile:
     runs-on: ubuntu-latest

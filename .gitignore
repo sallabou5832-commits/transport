@@ -1,2 +1,5 @@
 # Sessions et outils locaux
 .claude/
+
+# Environnement virtuel Python de la racine (transpt1/venv/ est ignoré par transpt1/.gitignore)
+venv/
