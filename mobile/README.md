@@ -1,7 +1,8 @@
 # Transport Coord — application mobile
 
-Application Flutter pour les rôles de terrain (chauffeurs, guichetiers, bagagistes, mécaniciens).
-Elle utilise **la même API Django et les mêmes endpoints JWT que le frontend web**
+Application Flutter destinée aux rôles de terrain. Aujourd'hui, elle a des écrans pour le **guichetier** et les
+**chauffeurs** (principal et relais) ; le contrôleur, le bagagiste, le mécanicien et les autres postes voient un écran
+d'attente et travaillent sur le site web. Elle utilise **la même API Django et les mêmes endpoints JWT que le site web**
 (`/api/auth/login/`, `/api/auth/refresh/`, `/api/auth/me/`).
 
 Ce qui est en place :
@@ -66,7 +67,8 @@ DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,10.0.2.2,192.168.1.20
 ```
 
 Comptes de démonstration (voir `transpt1/README.md` pour les créer) — mot de passe `Demo!2024` :
-`guichetier_stc`, `chauffeur_stc`, `chauffeur_relais_stc`, `magasinier_stc`, `chef_atelier_stc`.
+`guichetier_stc`, `chauffeur_stc`, `chauffeur_relais_stc` ; tout autre compte (`magasinier_stc`, `chef_atelier_stc`…)
+arrive sur l'écran d'attente.
 
 ### 3. Lancer l'application
 
@@ -131,14 +133,38 @@ flutter test           # tests unitaires et d'écrans (faux serveur, aucun rése
 ```
 
 Test de bout en bout contre un **vrai** backend (il crée de vrais tickets : à lancer sur une base de
-démonstration, jamais en production). Il a besoin des comptes de démo, d'un second guichetier
-`guichetier2_stc` et d'un départ « E2E-Garantie » sur un véhicule de 3 places (voir l'en-tête du fichier) :
+démonstration jetable, jamais en production). Il a besoin des comptes de démo (`seed_demo_users`,
+`seed_demo_reseau`, `seed_demo_operations`), d'un second guichetier `guichetier2_stc` et d'un départ
+« E2E-Garantie » sur un véhicule de 3 places, à créer par `python manage.py shell` :
+
+```python
+import datetime
+from django.utils import timezone
+from billetterie.models import Depart
+from core.models import Company, Role, User
+from reseau.models import Gare, Ligne, Vehicule
+
+stc = Company.objects.get(name="STC Voyages")
+g2, cree = User.objects.get_or_create(username="guichetier2_stc", defaults={"role": Role.GUICHETIER, "company": stc})
+if cree:
+    g2.set_password("Demo!2024"); g2.save()
+gares = list(Gare.objects.filter(company=stc)[:2])
+ligne, _ = Ligne.objects.get_or_create(nom="E2E-Garantie", company=stc, defaults={"gare_depart": gares[0], "gare_arrivee": gares[1]})
+car, _ = Vehicule.objects.get_or_create(immatriculation="E2E-3PL", company=stc, defaults={"capacite": 3, "statut": "disponible"})
+Depart.objects.get_or_create(ligne=ligne, vehicule=car, company=stc, defaults={
+    "chauffeur": User.objects.get(username="chauffeur_libre_stc"),
+    "date_heure": timezone.now() + datetime.timedelta(hours=3)})
+```
 
 ```bash
 # backend démarré sur http://localhost:8000
 flutter test tool/e2e_smoke_test.dart
 # autre serveur : --dart-define=API_BASE_URL=http://192.168.1.20:8000/api
 ```
+
+Dernier relevé (2 novembre 2026) : `flutter analyze` sans problème, `flutter test` **209 réussis**, essai de bout en bout
+**12/12** contre un serveur et une base jetables. Les lignes de démonstration n'ont pas de tarif : ces essais ne montrent
+donc pas le défaut du tarif (voir « Limites connues »).
 
 ## Architecture
 
@@ -281,6 +307,17 @@ lui-même est déclaré par le paquet `geolocator_android`, rien à ajouter côt
 
 ## Limites connues (à traiter avant la mise en production)
 
+- **Le mobile ignore le tarif de la ligne.** Le guichetier tape un prix ; dès qu'une ligne a un tarif, le serveur
+  refuse tout autre prix (« Le tarif de cette ligne est de 6000 FCFA : seul un chef peut vendre à un autre prix »,
+  reproduit le 2 novembre 2026). Une vente faite **hors ligne** au mauvais prix est donc refusée à la synchronisation,
+  voyageur déjà payé (anomalie G-02 de `../RAPPORT_ANOMALIES_2026-10-31.md`).
+- **Une erreur du serveur déconnecte l'utilisateur** : toute réponse en erreur au renouvellement du jeton, erreur
+  serveur (5xx) comprise, efface la session (`api_client.dart`, G-01) ; seule une coupure réseau est épargnée.
+- **Écrans absents** pour le contrôleur, le bagagiste et le mécanicien ; le chauffeur ne peut ni déclarer un incident, ni
+  faire un relais ou une checklist de reprise, ni voir ses alertes depuis le mobile (site web uniquement).
+- **L'extincteur manque à la checklist avant-départ** (`checklist_depart_screen.dart`, comme sur le site), alors que le
+  serveur le compte parmi les items de sécurité : il n'est jamais contrôlé et ne bloque jamais un départ (constat N-01 de
+  `../AUDIT_AVANCEMENT_2026-11-02.md`).
 - **Places réservées = places immobilisées.** Tant qu'elles sont réservées, les autres guichets ne peuvent
   pas les vendre. Le quota (2 par guichetier et par départ) est un compromis à ajuster selon la taille des
   cars et le nombre de guichets ; il est le même pour toutes les compagnies.
@@ -303,8 +340,9 @@ lui-même est déclaré par le paquet `geolocator_android`, rien à ajouter côt
   trajet côté serveur plutôt que sur un bouton du mobile : il fonctionne dès aujourd'hui, quel que soit
   l'endroit d'où le trajet a été démarré.
 - **Commande vocale** : première couche, en français uniquement, sur deux actions (voir « Commande
-  vocale »). La compréhension du texte dicté est volontairement simple (mots-clés, pas de négation) :
-  à étendre si l'usage sur le terrain le montre nécessaire. Non essayée sur un vrai téléphone dans cet
+  vocale »). La compréhension du texte dicté est volontairement simple (mots-clés, **pas de négation**) :
+  « freins pas bons » est compris **OK** sur un item de sécurité, « ne confirme pas » confirme la vente (G-03). À
+  corriger avant tout usage de la checklist vocale sur le terrain. Non essayée sur un vrai téléphone dans cet
   environnement, pour la même raison que le reste de l'application (voir plus haut, « Android et iOS »).
 - **Suivi GPS** : le service de premier plan Android (voir « Suivi GPS ») n'a, comme le reste de
   l'application, jamais tourné sur un appareil réel ni un émulateur dans cet environnement — en particulier,

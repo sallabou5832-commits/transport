@@ -38,6 +38,7 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 | `.gitignore` | Exclut `.env`, `venv/`, `__pycache__/`, `staticfiles/`. |
 | `PERMISSIONS.md` | Qui peut voir et faire quoi, par rôle — fait foi, vérifié par `role_coverage_tests`. |
 | `DEPLOIEMENT.md` | Checklist de mise en production : variables d'environnement, migrations, proxy, tâches planifiées, sauvegardes, limites connues. |
+| `LIEN_BILLETTERIE.md` | Guide pour l'éditeur du logiciel de billetterie d'une compagnie : API (clé, planning, ventes, annulations) et import de fichier. |
 | `README.md` | Installation, structure des 18 apps, comptes de démonstration, endpoints clés. |
 | `deploy/sauvegarde-windows.ps1` | Script Windows planifiable qui lance `sauvegarde_base` puis `etat_sauvegarde`. |
 | `deploy/transport-coord-sauvegarde.{service,timer}` | Unités systemd (Linux) : sauvegarde nocturne planifiée. |
@@ -57,12 +58,17 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 | `throttles.py` 🔴 | Limitation des tentatives de connexion (par compte+adresse, et par adresse seule). |
 | `fichiers.py` 🔴 | Pièces jointes : type de fichier vérifié par signature binaire, nom aléatoire, jamais de lien public, téléchargement sécurisé. |
 | `sauvegarde.py` | `pg_dump`/`pg_restore` sans shell, empreinte SHA-256, rotation, envoi hors serveur, restauration testée. |
-| `dates.py` 🔴 | Lit une date `AAAA-MM-JJ` d'un paramètre de requête sans lever d'exception sur une entrée invalide. |
+| `dates.py` 🔴 | Lit une date `AAAA-MM-JJ` (ou date-heure) d'un paramètre ou d'un champ JSON sans lever d'exception sur une entrée invalide, y compris une valeur qui n'est pas un texte. |
+| `entiers.py` 🔴 | `lire_entier` : identifiant venu de l'URL ou du JSON, `None` si invalide ou démesuré (remplace `isdigit()` + `int()`). |
+| `textes.py` | `lire_texte` / `champ_du_corps` : texte d'un corps de requête sans espaces de bord ni caractère nul, sans exception sur un nombre ou une liste. |
+| `parsers.py` 🔴 | `AnalyseurJSON` : refuse en 400 un corps JSON qui n'est pas un objet (sauf vue marquée `corps_json_liste`, ex. positions GPS par lot). |
+| `exceptions.py` 🔴 | Gestionnaire d'exceptions de l'API : suppression d'un élément encore utilisé → 409, nombre démesuré ou caractère nul → 400. |
+| `pagination.py` | Pagination facultative (`?limit=` / `?offset=`), maximum 500 par page. |
 | `demo_garde.py` 🔴 | Refuse les commandes de démonstration hors développement (`DJANGO_DEBUG=True` requis). |
 | `urls.py` | `/api/auth/me/`, `/api/companies/<id>/`, `/api/comptes/`. |
 | `management/commands/seed_demo_users.py` | Crée 2 compagnies et un utilisateur par rôle (mot de passe `Demo!2024`). |
 | `management/commands/sauvegarde_base.py`, `verifier_sauvegarde.py`, `etat_sauvegarde.py` | Sauvegarde, test de restauration réel, vérification d'état (code de sortie pour supervision). |
-| `tests/` (8 fichiers) | Modèles, permissions, authentification JWT, HTTPS, dates invalides, comptes (suspension), sauvegardes, données de démo. |
+| `tests/` (11 fichiers) | Modèles, permissions, authentification JWT, HTTPS, dates invalides, entrées hostiles (entiers, textes, corps JSON, suppressions protégées), pagination, comptes (suspension), sauvegardes, données de démo. |
 
 ### 2.2 `audit/` — journal d'audit et connexions
 
@@ -212,7 +218,7 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 | `alertes/` 🔴 | `models.py` (`Alerte`, `LectureAlerte`, `TypeAlerte`), `services.py` (`alerter()` : jamais bloquant), `generation.py` (seuils critiques, départs à risque, échéances — idempotent), `serializers.py`, `views.py`/`urls.py` (`/api/alertes/`, lecture individuelle) | Alertes inter-pôles : cloche sur toutes les pages, génération automatique, blocage de sécurité QHSE. |
 | `colis/` 🔴 | `models.py` (code de retrait haché, `make_password`/`check_password`), `serializers.py`, `services.py` (notifications, plan de chargement), `admin.py` (lecture seule), `views.py`/`urls.py` (`/api/colis/`) | Colis et bagages : enregistrement → chargement → arrivée → retrait par code (5 essais puis verrouillage). |
 | `communication/` 🔴 | `models.py` (`NoteService`, `EvenementAgenda`, `MessageDirect`, `DocumentArchive`), `serializers.py`, `views.py`/`urls.py` (`/api/notes-service/`, `/api/agenda/`, `/api/messages-directs/`, `/api/archives/`) | Secrétariat général : notes de service, agenda de direction, messages directs du chef de gare, archives. |
-| `configuration/` 🔴 | `models.py`, `regles.py` (qui configure qui, valeurs par défaut), `services.py` (configuration effective d'un agent, dans le cadre de la compagnie), `serializers.py`, `views.py`/`urls.py` (`/api/configuration/...`) | Configuration hiérarchique compagnie → poste → agent (automatisation, gamification), appliquée par le serveur. |
+| `configuration/` 🔴 | `models.py`, `regles.py` (qui configure qui, valeurs par défaut, règles du règlement intérieur), `services.py` (configuration effective d'un agent, dans le cadre de la compagnie ; `exiger_regle`), `serializers.py`, `views.py`/`urls.py` (`/api/configuration/...`, dont `/reglement/`) | Configuration hiérarchique compagnie → poste → agent (automatisation, gamification), et règlement intérieur de la compagnie (ce qu'elle permet ou non à certains postes), appliqués par le serveur. |
 | `finance/` 🔴 | `models.py` (`Depense`, `BudgetCarburant`, `Fournisseur`, `Facture`, `ConfigurationFinance`), `serializers.py`, `views.py` (export CSV), `urls.py` (`/api/finance/...`) | Dépenses, budget carburant, fournisseurs/factures, export de reporting financier. |
 | `gamification/` 🔴 | `models.py` (`MissionAccomplie`), `moteur.py` (points/niveaux/missions/badges recalculés à chaque fois), `views.py`/`urls.py` (`/api/gamification/moi/`, `/classement/`, `/agents/`) — pas de `serializers.py` (réponses construites en dict par `moteur.py`) | Points, niveaux, missions du jour, badges, classements, réglable par poste via `configuration`. |
 | `investissements/` 🔴 | `models.py` (`Investissement`), `serializers.py`, `views.py`/`urls.py` (`/api/investissements/`) | Demandes d'investissement (technique/exploitation/finance), décision du PDG seul. |
@@ -238,6 +244,21 @@ Chacune de ces 8 apps suit le même squelette que les apps « historiques » : `
 | `management/commands/generer_flux_tutelle.py` | Rattrapage quotidien planifié des flux automatiques. |
 | `tests/test_tutelle.py` | Authentification, permissions, génération, réception d'un flux. |
 
+### 2.14 `lien_billetterie/` — lien avec le logiciel de billetterie de la compagnie
+
+| Fichier | Rôle |
+|---|---|
+| `models.py` | `ReglageBilletterie` (mode `integre` / `externe` / `mixte`), `CleLienBilletterie` (clé d'API par compagnie, **hachée**), `ImportVentes` (fichier déposé et compte rendu ligne par ligne). |
+| `services.py` | `mode_billetterie`, `exiger_vente_au_guichet` (appelé par la vente de `billetterie`), `enregistrer_vente` et `annuler_vente` : une vente reçue devient un `Ticket` (place sous verrou, anti-doublon par référence, ni caisse ni SMS). |
+| `fichiers.py` | Lecture d'un export CSV ou Excel : en-tête aux noms courants, dates, montants et moyens de paiement normalisés. |
+| `authentication.py` / `permissions.py` | Clé d'API du logiciel (seulement sur ses routes) ; réglage et clés : PDG, directeur des opérations ; import : eux et le chef de gare (sa gare). |
+| `views.py` / `urls.py` | `/api/lien-billetterie/departs/`, `/ventes/`, `/annulations/` (logiciel), `/reglage/`, `/cles/`, `/imports/` (agents). |
+| `tests/` | Mode et vente au guichet, clés et authentification, planning, ventes et annulations, import CSV et Excel, contrôle à bord. |
+
+Côté `billetterie` : `Ticket.source`, `logiciel`, `reference_externe`, `code_externe` (vu par le contrôle à bord), `vendu_par`
+facultatif ; `reservations.consommer_une_place` et `ventes.annuler_ticket` sont partagés par le guichet et le lien. Guide pour
+l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
+
 ## 3. Frontend web (`frontend/`)
 
 ### 3.1 Configuration
@@ -245,8 +266,9 @@ Chacune de ces 8 apps suit le même squelette que les apps « historiques » : `
 | Fichier | Rôle |
 |---|---|
 | `index.html` | Page hôte de l'application React (Vite). |
-| `vite.config.js` | Configuration du bundler (build, dev server). |
-| `package.json` | Dépendances (React 19, React Router 7), scripts (`dev`, `build`, `lint`, `test`, `e2e`). |
+| `vite.config.js` | Configuration du bundler (build, dev server) et de Vitest (qui ignore `e2e/`). |
+| `playwright.config.ts` | Configuration de Playwright Test (`npm run e2e:pw`), voir §3.6. |
+| `package.json` | Dépendances (React 19, React Router 7), scripts (`dev`, `build`, `lint`, `test`, `e2e`, `e2e:pw`). |
 | `.oxlintrc.json` | Règles du linter `oxlint`. |
 | `.env.example` | `VITE_API_BASE_URL` (adresse de l'API). |
 | `.gitignore` | Exclut `node_modules/`, `dist/`. |
@@ -371,10 +393,14 @@ Chacune de ces 8 apps suit le même squelette que les apps « historiques » : `
 
 | Fichier | Rôle |
 |---|---|
-| `run.mjs` 🔴 | Lance les scénarios dans Chrome (Playwright) contre une base jetable. |
-| `scenarios.mjs` 🔴 | Les 10 scénarios rejoués (vente, incident, atelier, PDG, colis, jeu, configuration, caisse, GPS, contrôle). |
-| `lib.mjs` 🔴 | Fonctions communes aux scénarios (connexion, attente, capture). |
+| `run.mjs` 🔴 | `npm run e2e` : monte la pile d'essai puis joue les scénarios dans Chrome (`playwright-core`). |
+| `scenarios.mjs` 🔴 | Les 14 scénarios rejoués (smoke de tous les postes, coordination QHSE/chef de gare, colis, jeu, configuration, caisse, suivi GPS, contrôle, pouvoirs, atelier, secrétariat, comptabilité, ressources humaines, juridique) et l'aide à la connexion. |
+| `lib.mjs` 🔴 | Outils de l'environnement d'essai : processus, attente des serveurs, choix du navigateur, et `demarrerPile` / `detruirePile` (base jetable + API Django + site compilé), partagés par les deux lanceurs. |
+| `pile.setup.mjs` | Montage et démontage de la pile pour Playwright Test (`E2E_REUTILISER=1` pour viser une pile déjà lancée). |
+| `connexion.spec.ts` | Essais Playwright Test (`npm run e2e:pw`) : écran de connexion, arrivée du guichetier sur son tableau de bord, mot de passe erroné, page réservée sans session. |
 | `comptes.json` 🔴 | Comptes de démonstration utilisés par les essais. |
+
+`playwright.config.ts` (à la racine de `frontend/`) règle Playwright Test : un seul projet (Chrome ou Edge déjà installé, aucun navigateur téléchargé), la pile montée par `pile.setup.mjs`. Vitest n'exécute pas `e2e/` (`vite.config.js`).
 
 ## 4. Application mobile (`mobile/`)
 
