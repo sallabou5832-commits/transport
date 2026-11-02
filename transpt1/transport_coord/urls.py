@@ -42,4 +42,5 @@ urlpatterns = [
     path('api/', include('finance.urls')),
     path('api/', include('rh.urls')),
     path('api/', include('tutelle.urls')),
+    path('api/', include('lien_billetterie.urls')),
 ]

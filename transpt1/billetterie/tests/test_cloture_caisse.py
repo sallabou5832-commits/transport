@@ -4,6 +4,8 @@ import pytest
 from django.utils import timezone
 
 from billetterie.models import Depart, DepartStatut, ModePaiement
+from core.models import Role
+from reseau.models import AffectationGare
 
 
 def _vendre(api_client, depart, passager, prix, mode):
@@ -72,8 +74,11 @@ class TestClotureCaisse:
         assert float(response.data["montant_total"]) == 5000.00
 
     def test_superieur_peut_consulter_cloture_dun_guichetier(
-        self, api_client, guichetier_a, chef_gare_billetterie_a, depart_a
+        self, api_client, guichetier_a, chef_gare_billetterie_a, depart_a, gare_depart_a, company_a
     ):
+        gare_depart_a.chef = chef_gare_billetterie_a
+        gare_depart_a.save()
+        AffectationGare.objects.create(agent=guichetier_a, gare=gare_depart_a, company=company_a)
         api_client.force_authenticate(user=guichetier_a)
         assert _vendre(api_client, depart_a, "Passager 1", "5000.00", ModePaiement.ESPECES).status_code == 201
 
@@ -85,6 +90,18 @@ class TestClotureCaisse:
 
         assert response.status_code == 200
         assert response.data["nombre_tickets"] == 1
+
+    def test_le_chef_de_gare_ne_consulte_que_la_caisse_des_guichetiers_de_sa_gare(
+        self, api_client, guichetier_a, chef_gare_billetterie_a, user_factory, company_a
+    ):
+        today = timezone.localdate().isoformat()
+        url = f"/api/tickets/cloture-caisse/?guichetier={guichetier_a.id}&date_debut={today}&date_fin={today}"
+
+        # Un guichetier sans gare, ou d'une gare qu'il ne dirige pas : refusé ; la direction des opérations voit tout.
+        api_client.force_authenticate(user=chef_gare_billetterie_a)
+        assert api_client.get(url).status_code == 403
+        api_client.force_authenticate(user=user_factory("dirops_consulte", Role.DIRECTEUR_EXPLOITATION, company=company_a))
+        assert api_client.get(url).status_code == 200
 
     def test_guichetier_ne_peut_pas_consulter_la_cloture_dun_autre(
         self, api_client, guichetier_a, guichetier_a2, depart_a

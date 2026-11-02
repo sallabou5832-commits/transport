@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -60,7 +61,8 @@ def verifier_ticket(controle, code):
             # `of=("self",)` : on ne verrouille que le billet (PostgreSQL refuse FOR UPDATE sur le côté nullable d'une jointure).
             Ticket.objects.select_for_update(of=("self",))
             .select_related("depart", "utilise_par")
-            .filter(company=controle.company, code=code)
+            # Le code de nos billets, ou celui qu'imprime le logiciel de billetterie de la compagnie.
+            .filter(Q(code=code) | Q(code_externe=code), company=controle.company)
             .first()
         )
         if ticket is None:
@@ -77,7 +79,8 @@ def verifier_ticket(controle, code):
             resultat = ResultatVerification.VALIDE
             ticket.utilise_le, ticket.utilise_par = timezone.now(), controle.controleur
             ticket.save(update_fields=["utilise_le", "utilise_par"])
-        verification = VerificationTicket.objects.create(controle=controle, code=code, resultat=resultat, ticket=ticket)
+        # La colonne tient 32 caractères (la longueur d'un code de billet) : un code plus long ne peut être qu'inconnu.
+        verification = VerificationTicket.objects.create(controle=controle, code=code[:32], resultat=resultat, ticket=ticket)
     return verification, ticket
 
 

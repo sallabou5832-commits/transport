@@ -21,11 +21,11 @@ from billetterie.models import (
     Depart,
     DepartStatut,
     ModePaiement,
-    ReservationHorsLigne,
-    StatutTicket,
     Ticket,
 )
 from colis import services as colis_services
+from lien_billetterie.models import ModeBilletterie
+from lien_billetterie.services import exiger_vente_au_guichet, mode_billetterie
 from colis.permissions import CanUseColis
 from billetterie.permissions import (
     IsDispatchManagerAlways,
@@ -34,16 +34,18 @@ from billetterie.permissions import (
     IsGuichetierOrAboveWrite,
 )
 from billetterie.serializers import ClotureCaisseSerializer, DepartSerializer, TicketSerializer
+from billetterie.ventes import annuler_ticket
 from configuration.regles import NiveauAutomatisation
 from configuration.services import automatisation_au_moins, configuration_effective, exiger_fonction
 from core.dates import lire_date, lire_date_heure
+from core.entiers import lire_entier
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
 from core.permissions import IsSameCompany
 from core.serializers import nom_complet
 from notifications.services import notifier_vente_ticket
 from personnel_roulant.models import FeuilleDeRoute
-from reseau.models import VehiculeStatut
+from reseau.models import AffectationGare, VehiculeStatut
 
 
 CLE_IDEMPOTENCE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -187,9 +189,8 @@ class DepartViewSet(BilletterieViewSet):
         date_heure = lire_date_heure(request.query_params.get("date_heure"))
         if date_heure is None:
             raise ValidationError({"date_heure": "Date et heure requises (format ISO 8601, ex. 2030-05-17T08:30)."})
-        try:
-            places_min = int(request.query_params.get("places_min") or 0)
-        except ValueError:
+        places_min = lire_entier(request.query_params.get("places_min") or "0")
+        if places_min is None:
             raise ValidationError({"places_min": "Nombre entier attendu."})
 
         vehicules = planning.vehicules_disponibles(request.user.company_id, date_heure, places_min=places_min)
@@ -280,23 +281,7 @@ class TicketViewSet(BilletterieViewSet):
             raise ValidationError(
                 {"motif": f"Indiquez le motif de l'annulation ({MOTIF_ANNULATION_MIN} caractères au moins)."}
             )
-        ticket = self.get_object()
-        with transaction.atomic():
-            ticket = Ticket.objects.select_for_update().get(pk=ticket.pk)
-            if ticket.statut == StatutTicket.ANNULE:
-                raise ValidationError("Ce ticket est déjà annulé.")
-            depart = Depart.objects.select_for_update().get(pk=ticket.depart_id)
-
-            ticket.statut = StatutTicket.ANNULE
-            ticket.annule_par = request.user
-            ticket.annule_le = timezone.now()
-            ticket.motif_annulation = motif[:255]
-            ticket.save(update_fields=["statut", "annule_par", "annule_le", "motif_annulation"])
-
-            # Un départ terminé n'a plus de places à rendre : l'annulation (remboursement) reste possible.
-            if depart.statut != DepartStatut.TERMINE and depart.places_vendues > 0:
-                depart.places_vendues -= 1
-                depart.save(update_fields=["places_vendues"])
+        ticket = annuler_ticket(self.get_object().pk, par=request.user, motif=motif)
         return Response(self.get_serializer(ticket).data)
 
     @staticmethod
@@ -318,7 +303,7 @@ class TicketViewSet(BilletterieViewSet):
     def _meme_demande(ticket, data):
         try:
             return (
-                int(data.get("depart")) == ticket.depart_id
+                lire_entier(data.get("depart")) == ticket.depart_id
                 and str(data.get("passager_nom", "")).strip() == ticket.passager_nom
                 and str(data.get("passager_telephone", "")).strip() == ticket.passager_telephone
                 and (data.get("prix") in (None, "") or Decimal(str(data.get("prix"))) == ticket.prix)
@@ -337,6 +322,7 @@ class TicketViewSet(BilletterieViewSet):
         devenu complet ou terminé depuis la première vente.
         """
         exiger_fonction(request.user, "vente_ticket")
+        exiger_vente_au_guichet(request.user)
         cle = self._cle_idempotence(request)
         if cle is None:
             return super().create(request, *args, **kwargs)
@@ -371,7 +357,7 @@ class TicketViewSet(BilletterieViewSet):
                 .select_related("vehicule", "ligne")
                 .get(pk=depart_pk)
             )
-            self._reserver_une_place(depart, user)
+            reservations.consommer_une_place(depart, user)
             serializer.save(
                 vendu_par=user,
                 company=user.company,
@@ -381,45 +367,6 @@ class TicketViewSet(BilletterieViewSet):
             depart.save(update_fields=["places_vendues"])
 
         notifier_vente_ticket(serializer.instance, depart)
-
-    @staticmethod
-    def _reserver_une_place(depart, user):
-        """Vérifie qu'une place existe pour `user` et la consomme (sous verrou du départ).
-
-        Un guichetier qui a réservé des places pour la vente hors ligne les utilise en
-        premier (elles lui sont garanties). Sinon il ne peut vendre que les places que
-        personne d'autre n'a réservées.
-        """
-        maintenant = timezone.now()
-        reservation = (
-            ReservationHorsLigne.objects.select_for_update()
-            .filter(depart=depart, guichetier=user, expire_le__gt=maintenant)
-            .first()
-        )
-        if reservation is not None:
-            if reservation.places > 1:
-                reservation.places -= 1
-                reservation.save(update_fields=["places", "mis_a_jour_le"])
-            else:
-                reservation.delete()
-            return
-
-        capacite = depart.vehicule.capacite
-        if depart.places_vendues >= capacite:
-            raise ValidationError({"depart": "Plus aucune place disponible sur ce départ."})
-        reservees = (
-            ReservationHorsLigne.objects.filter(depart=depart, expire_le__gt=maintenant).aggregate(
-                total=Sum("places")
-            )["total"]
-            or 0
-        )
-        if depart.places_vendues + reservees >= capacite:
-            raise ValidationError(
-                {
-                    "depart": "Les dernières places de ce départ sont réservées pour des "
-                    "ventes hors ligne d'autres guichets."
-                }
-            )
 
     @action(
         detail=False,
@@ -440,6 +387,10 @@ class TicketViewSet(BilletterieViewSet):
         if request.method == "DELETE":
             reservations.liberer_reservations(user)
             return Response(status=204)
+        if mode_billetterie(user.company_id) == ModeBilletterie.EXTERNE:
+            # Plus de vente au guichet, donc plus de places à mettre de côté pour la vente hors ligne.
+            reservations.liberer_reservations(user)
+            return Response([])
         accordees = reservations.accorder_reservations(user)
         return Response(
             [
@@ -456,7 +407,7 @@ class TicketViewSet(BilletterieViewSet):
     )
     def cloture_caisse(self, request):
         user = request.user
-        raw_guichetier_id = request.query_params.get("guichetier", user.id)
+        guichetier_id = lire_entier(request.query_params.get("guichetier", user.id))
         date_debut = lire_date(request.query_params.get("date_debut"))
         date_fin = lire_date(request.query_params.get("date_fin"))
 
@@ -465,21 +416,28 @@ class TicketViewSet(BilletterieViewSet):
                 "Les paramètres date_debut et date_fin (format AAAA-MM-JJ) sont requis."
             )
 
-        try:
-            guichetier_id = int(raw_guichetier_id)
-        except (TypeError, ValueError):
+        if guichetier_id is None:
             raise ValidationError({"guichetier": "Identifiant invalide."})
 
         if user.role == Role.GUICHETIER and guichetier_id != user.id:
             raise PermissionDenied(
                 "Vous ne pouvez consulter que votre propre clôture de caisse."
             )
+        if guichetier_id != user.id:
+            exiger_guichetier_de_sa_gare(user, guichetier_id)
 
         # La compagnie vient de l'utilisateur, pas de la requête : le superadmin (sans compagnie) voit toutes les caisses.
         caisse = calculer_caisse(
             None if user.company_id is None else user.company_id, guichetier_id, date_debut, date_fin
         )
         return Response({"guichetier": guichetier_id, "date_debut": date_debut, "date_fin": date_fin, **caisse})
+
+
+def exiger_guichetier_de_sa_gare(user, guichetier_id):
+    """Le chef de gare ne voit et ne clôture que la caisse des guichetiers de sa gare (403 sinon) ; le reste de la
+    supervision, celle de tout guichetier de la compagnie."""
+    if user.role == Role.CHEF_GARE and not AffectationGare.objects.filter(agent_id=guichetier_id, gare__chef=user).exists():
+        raise PermissionDenied("Vous ne voyez et ne clôturez que la caisse des guichetiers de votre gare.")
 
 
 class ClotureCaisseViewSet(
@@ -500,8 +458,12 @@ class ClotureCaisseViewSet(
         user = self.request.user
         if user.role == Role.GUICHETIER:  # chacun ne voit que sa caisse ; la supervision voit celles de la compagnie
             queryset = queryset.filter(guichetier_id=user.id)
-        elif self.request.query_params.get("guichetier", "").isdigit():
-            queryset = queryset.filter(guichetier_id=int(self.request.query_params["guichetier"]))
+        else:
+            if user.role == Role.CHEF_GARE:  # le chef de gare, celles faites à sa gare seulement
+                queryset = queryset.filter(gare__chef=user)
+            guichetier = lire_entier(self.request.query_params.get("guichetier"))
+            if guichetier is not None:
+                queryset = queryset.filter(guichetier_id=guichetier)
         date = lire_date(self.request.query_params.get("date"))
         return queryset.filter(date=date) if date else queryset
 
@@ -525,10 +487,11 @@ class ClotureCaisseViewSet(
         else:
             try:
                 guichetier = get_user_model().objects.get(
-                    pk=int(request.data.get("guichetier")), company_id=user.company_id, role=Role.GUICHETIER
+                    pk=lire_entier(request.data.get("guichetier")), company_id=user.company_id, role=Role.GUICHETIER
                 )
-            except (TypeError, ValueError, get_user_model().DoesNotExist):
+            except get_user_model().DoesNotExist:
                 raise ValidationError({"guichetier": "Indiquez le guichetier dont vous clôturez la caisse."})
+            exiger_guichetier_de_sa_gare(user, guichetier.pk)
 
         cloture, creee = cloturer(guichetier, date, par=user)
         if not creee:

@@ -94,6 +94,7 @@ INSTALLED_APPS = [
     'finance',
     'rh',
     'tutelle',
+    'lien_billetterie',
 ]
 
 AUTH_USER_MODEL = 'core.User'

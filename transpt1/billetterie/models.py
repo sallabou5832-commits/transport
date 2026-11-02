@@ -73,6 +73,15 @@ class ModePaiement(models.TextChoices):
     MOBILE_MONEY = "mobile_money", "Mobile money"
 
 
+class SourceTicket(models.TextChoices):
+    """D'où vient le billet : vendu au guichet (site, mobile), ou par le logiciel de billetterie de la compagnie, reçu par son
+    API ou par l'import d'un fichier (voir `lien_billetterie`)."""
+
+    GUICHET = "guichet", "Guichet"
+    LIEN = "lien", "Logiciel de la compagnie (API)"
+    IMPORT = "import", "Logiciel de la compagnie (fichier)"
+
+
 class StatutTicket(models.TextChoices):
     VALIDE = "valide", "Valide"
     ANNULE = "annule", "Annulé"
@@ -91,10 +100,17 @@ class Ticket(models.Model):
     # le motif de la dérogation : une sous-facturation ne peut plus passer inaperçue.
     prix_tarif = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, editable=False)
     motif_derogation = models.CharField(max_length=255, blank=True)
+    # Vide pour un billet vendu par le logiciel de la compagnie : il n'entre dans la caisse d'aucun guichetier.
     vendu_par = models.ForeignKey(
-        "core.User", on_delete=models.PROTECT, related_name="tickets_vendus"
+        "core.User", null=True, blank=True, on_delete=models.PROTECT, related_name="tickets_vendus"
     )
     date_vente = models.DateTimeField(auto_now_add=True)
+    source = models.CharField(max_length=10, choices=SourceTicket.choices, default=SourceTicket.GUICHET)
+    logiciel = models.CharField(max_length=100, blank=True)  # le logiciel qui l'a vendu, pour un billet externe
+    # Le numéro du billet dans ce logiciel : une même vente reçue deux fois (lot rejoué, fichier réimporté) ne crée pas un
+    # second billet. `code_externe` en est la forme normalisée, celle que le contrôleur saisit à bord.
+    reference_externe = models.CharField(max_length=64, null=True, blank=True)
+    code_externe = models.CharField(max_length=32, blank=True)
     # Clé fournie par le client (en-tête Idempotency-Key) : rejouer la même vente,
     # par exemple après une coupure réseau, ne crée pas un second ticket.
     cle_idempotence = models.CharField(max_length=64, null=True, blank=True, editable=False)
@@ -120,13 +136,19 @@ class Ticket(models.Model):
         ordering = ["-date_vente"]
         indexes = [
             models.Index(fields=["company", "date_vente"], name="ticket_company_date_vente"),
+            models.Index(fields=["company", "code_externe"], name="ticket_company_code_externe"),
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=["vendu_par", "cle_idempotence"],
                 condition=models.Q(cle_idempotence__isnull=False),
                 name="ticket_cle_idempotence_unique_par_vendeur",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["company", "reference_externe"],
+                condition=models.Q(reference_externe__isnull=False),
+                name="ticket_reference_externe_unique_par_compagnie",
+            ),
         ]
 
     def __str__(self):

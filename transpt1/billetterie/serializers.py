@@ -201,6 +201,9 @@ class TicketSerializer(serializers.ModelSerializer):
             "mode_paiement",
             "vendu_par",
             "date_vente",
+            "source",
+            "logiciel",
+            "reference_externe",
             "code",
             "utilise_le",
             "statut",
@@ -211,7 +214,7 @@ class TicketSerializer(serializers.ModelSerializer):
         # Le statut ne se change que par l'action `annuler` : jamais à la création ni par une modification.
         read_only_fields = [
             "company", "vendu_par", "date_vente", "statut", "annule_par", "annule_le", "motif_annulation",
-            "prix_tarif", "code", "utilise_le",
+            "prix_tarif", "code", "utilise_le", "source", "logiciel", "reference_externe",
         ]
 
     def validate(self, attrs):

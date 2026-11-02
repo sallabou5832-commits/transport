@@ -9,6 +9,11 @@ Django==6.1.1
 django-cors-headers==4.9.0
 djangorestframework==3.18.1
 djangorestframework_simplejwt==5.5.1
+# Lu par openpyxl s'il est installé : protège la lecture d'un fichier Excel piégé (bombe d'entités XML).
+defusedxml==0.7.1
+et_xmlfile==2.0.0
+# Import des ventes d'un logiciel de billetterie externe au format Excel (voir lien_billetterie/fichiers.py).
+openpyxl==3.1.5
 # psycopg2-binary est déconseillé en production par ses auteurs (bibliothèque C embarquée, non mise à jour avec le
 # système) : sur le serveur, préférer `pip install psycopg2` compilé contre le libpq du système (voir DEPLOIEMENT.md).
 psycopg2-binary==2.9.13

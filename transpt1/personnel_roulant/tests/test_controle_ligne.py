@@ -447,3 +447,33 @@ class TestScoreDeControle:
         assert [m["code"] for m in etat["missions"]] == ["controler_2", "verifier_20"]
         assert [c["type"] for c in etat["classements"]] == ["gares", "controleurs"]
         assert etat["score_applicable"] is True
+
+
+@pytest.mark.django_db
+class TestValeursHostiles:
+    """Un code trop long, un nombre démesuré ou « NaN » sont des erreurs 400 (ou un billet inconnu), jamais une erreur 500."""
+
+    def test_un_code_de_plus_de_32_caracteres_est_un_billet_inconnu(self, api_client, equipe, trajet, controle):  # noqa: F811
+        reponse = verifier(api_client, equipe, controle["id"], "A" * 200)
+
+        assert reponse.status_code == 200 and reponse.data["resultat"] == "inconnu"
+        assert VerificationTicket.objects.get().code == "A" * 32
+
+    @pytest.mark.parametrize("champ, valeur", [
+        ("passagers_constates", 99999999999),
+        ("passagers_constates", "1" * 5000),
+        ("charge_constatee_kg", "NaN"),
+        ("charge_constatee_kg", "Infinity"),
+        ("charge_constatee_kg", "1000000"),
+        ("charge_constatee_kg", 123456789.5),
+    ])
+    def test_cloture_avec_un_nombre_refuse(self, api_client, equipe, trajet, controle, champ, valeur):  # noqa: F811
+        reponse = cloturer(api_client, equipe, controle["id"], **{champ: valeur})
+
+        assert reponse.status_code == 400 and champ in reponse.data
+        assert ControleLigne.objects.get(pk=controle["id"]).est_ouvert
+
+    def test_les_bornes_de_la_colonne_sont_acceptees(self, api_client, equipe, trajet, controle):  # noqa: F811
+        reponse = cloturer(api_client, equipe, controle["id"], passagers_constates=0, charge_constatee_kg="999999.99")
+
+        assert reponse.status_code == 200

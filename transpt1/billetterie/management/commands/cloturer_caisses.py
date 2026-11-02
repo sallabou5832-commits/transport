@@ -24,7 +24,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         jour = datetime.date.fromisoformat(options["date"]) if options["date"] else timezone.localdate()
         vendeurs = (
-            Ticket.objects.filter(date_vente__date=jour, statut=StatutTicket.VALIDE)
+            Ticket.objects.filter(date_vente__date=jour, statut=StatutTicket.VALIDE, vendu_par__isnull=False)
             .values_list("vendu_par", flat=True)
             .distinct()
         )

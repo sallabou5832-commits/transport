@@ -72,6 +72,11 @@ REGISTRE = {
     "supports.PieceSinistre": (),
     "supports.ModeleJuridique": (),
     "tutelle.FluxTutelle": (),
+    "lien_billetterie.ReglageBilletterie": (),
+    # L'empreinte de la clé n'apprend rien à personne ; son dernier usage change à chaque appel du logiciel.
+    "lien_billetterie.CleLienBilletterie": ("cle_hachee", "derniere_utilisation"),
+    # Le compte rendu ligne par ligne reste sur l'import ; les billets créés sont tracés chacun.
+    "lien_billetterie.ImportVentes": ("rapport",),
     "core.User": ("last_login",),
     "core.Company": (),
 }

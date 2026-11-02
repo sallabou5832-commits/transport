@@ -142,6 +142,11 @@ RESTREINTS = {
     "/api/affectations-gare/agents-affectables/": {
         "superadmin", "pdg", "secretaire_general", "directeur_exploitation", "chef_gare",
     },
+    # Lien avec le logiciel de billetterie : le mode se lit par toute la compagnie ; les clés, par ceux qui les gèrent ; les
+    # imports, par eux et le chef de gare (les siens).
+    "/api/lien-billetterie/reglage/": COMPAGNIE,
+    "/api/lien-billetterie/cles/": {"pdg", "directeur_exploitation"},
+    "/api/lien-billetterie/imports/": {"pdg", "directeur_exploitation", "chef_gare"},
 }
 
 # Lecture ouverte à tout utilisateur authentifié de la compagnie (règle générale de PERMISSIONS.md).
@@ -166,6 +171,7 @@ LECTURE_GENERALE = [
     "/api/configuration/moi/",
     "/api/configuration/catalogue/",
     "/api/configuration/compagnie/",  # tous voient le cadre de leur compagnie ; seul le PDG le modifie
+    "/api/configuration/reglement/",  # tous le lisent ; le PDG et, pour leur pôle, les directeurs le règlent
     "/api/configuration/postes/",  # liste vide pour qui ne règle personne
     "/api/configuration/agents/",
     "/api/suivi/moi/",  # « en_cours: false » pour qui ne conduit pas

@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from billetterie.models import Depart, DepartStatut, ReservationHorsLigne
 
@@ -19,6 +20,42 @@ def _reservees_par_les_autres(depart, guichetier, maintenant):
         .aggregate(total=Sum("places"))["total"]
         or 0
     )
+
+
+def consommer_une_place(depart, guichetier):
+    """Vérifie qu'une place existe et la consomme, sous verrou du départ (pris par l'appelant).
+
+    Un guichetier qui a réservé des places pour la vente hors ligne les utilise en premier (elles lui sont garanties).
+    Sinon, lui comme une vente venue d'un logiciel externe (`guichetier` vide) ne prend que les places que personne n'a
+    réservées : en billetterie mixte, les deux ventes se partagent les mêmes places sans survente.
+    """
+    maintenant = timezone.now()
+    reservation = (
+        ReservationHorsLigne.objects.select_for_update()
+        .filter(depart=depart, guichetier=guichetier, expire_le__gt=maintenant)
+        .first()
+        if guichetier is not None
+        else None
+    )
+    if reservation is not None:
+        if reservation.places > 1:
+            reservation.places -= 1
+            reservation.save(update_fields=["places", "mis_a_jour_le"])
+        else:
+            reservation.delete()
+        return
+
+    capacite = depart.vehicule.capacite
+    if depart.places_vendues >= capacite:
+        raise ValidationError({"depart": "Plus aucune place disponible sur ce départ."})
+    reservees = (
+        ReservationHorsLigne.objects.filter(depart=depart, expire_le__gt=maintenant).aggregate(total=Sum("places"))["total"]
+        or 0
+    )
+    if depart.places_vendues + reservees >= capacite:
+        raise ValidationError(
+            {"depart": "Les dernières places de ce départ sont réservées pour des ventes hors ligne d'autres guichets."}
+        )
 
 
 def accorder_reservations(user, maintenant=None):
