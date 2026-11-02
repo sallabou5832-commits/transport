@@ -7,6 +7,7 @@ import logging
 import uuid
 
 from django.apps import apps
+from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 
 from audit import contexte
@@ -62,6 +63,7 @@ REGISTRE = {
     "rh.Doleance": (),
     "rh.SuiviDoleance": (),
     "configuration.ConfigurationCompagnie": (),
+    "configuration.ReglementInterieur": (),
     "configuration.ConfigurationPoste": (),
     "configuration.ConfigurationAgent": (),
     "supports.DossierAgent": (),
@@ -149,18 +151,21 @@ def _enregistrer(action, instance, changements):
             representation = str(instance)[:255]
         except Exception:  # noqa: BLE001 — un __str__ qui échoue ne doit pas empêcher de tracer
             representation = f"{meta.label} #{instance.pk}"
-        JournalAudit.objects.create(
-            company_id=instance.pk if meta.label == "core.Company" else getattr(instance, "company_id", None),
-            acteur=acteur,
-            acteur_nom=(acteur.get_full_name() or acteur.username) if acteur else "système",
-            acteur_role=acteur.role if acteur else "",
-            action=action,
-            objet_type=meta.label_lower,
-            objet_id=str(instance.pk),
-            objet_repr=representation,
-            changements=changements,
-            adresse_ip=contexte.adresse_ip(),
-        )
+        # Savepoint : si l'écriture échoue en SQL (valeur refusée par PostgreSQL), seule elle est annulée. Sans cela, la
+        # transaction de l'action métier restait cassée et toutes les requêtes suivantes échouaient.
+        with transaction.atomic():
+            JournalAudit.objects.create(
+                company_id=instance.pk if meta.label == "core.Company" else getattr(instance, "company_id", None),
+                acteur=acteur,
+                acteur_nom=(acteur.get_full_name() or acteur.username) if acteur else "système",
+                acteur_role=acteur.role if acteur else "",
+                action=action,
+                objet_type=meta.label_lower,
+                objet_id=str(instance.pk),
+                objet_repr=representation,
+                changements=changements,
+                adresse_ip=contexte.adresse_ip(),
+            )
     except Exception:  # noqa: BLE001
         # Ne jamais bloquer l'action métier, mais ne jamais perdre l'échec en silence non plus.
         logger.exception("Impossible d'écrire dans le journal d'audit (%s)", instance)

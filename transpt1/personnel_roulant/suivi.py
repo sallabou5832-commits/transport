@@ -1,6 +1,7 @@
 """Suivi d'un trajet en cours : position, temps de conduite continue (fatigue), relais entre conducteurs."""
 
 import datetime
+import logging
 
 from django.conf import settings
 from django.db import transaction
@@ -24,13 +25,16 @@ from personnel_roulant.models import (
     StatutIncident,
 )
 
+journal = logging.getLogger(__name__)
+
 CHAUFFEURS = {Role.CHAUFFEUR_PRINCIPAL, Role.CHAUFFEUR_RELAIS}
 # Une position plus vieille que cela n'est plus « en direct » (le car est peut-être sans réseau) : on l'affiche quand même, datée.
 PEREMPTION_POSITION = datetime.timedelta(minutes=15)
 
 
 def seuil_fatigue_minutes():
-    return getattr(settings, "SUIVI_SEUIL_FATIGUE_MINUTES", 270)  # 4 h 30 de conduite continue
+    # 4 h 30 de conduite continue ; jamais moins d'une minute (un seuil nul ferait diviser par zéro la génération des alertes)
+    return max(1, getattr(settings, "SUIVI_SEUIL_FATIGUE_MINUTES", 270))
 
 
 def trajets_en_cours(company_id=None):
@@ -309,9 +313,12 @@ def diffuser_position(trajet, position):
     couche = get_channel_layer()
     if couche is None:
         return
-    async_to_sync(couche.group_send)(
-        f"carte_{trajet.company_id}", {"type": "position", "position": _ligne_carte(trajet, position, timezone.now())}
-    )
+    try:
+        async_to_sync(couche.group_send)(
+            f"carte_{trajet.company_id}", {"type": "position", "position": _ligne_carte(trajet, position, timezone.now())}
+        )
+    except Exception:  # noqa: BLE001 — Redis injoignable : les positions sont déjà enregistrées, un renvoi du lot les doublerait
+        journal.warning("Diffusion de la position impossible (couche de canaux indisponible).", exc_info=True)
 
 
 def derniere_position_recente(vehicule_id, maintenant=None, delai=PEREMPTION_POSITION):

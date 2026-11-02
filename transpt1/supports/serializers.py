@@ -195,10 +195,12 @@ class ModeleJuridiqueSerializer(serializers.ModelSerializer):
     def validate_poles(self, valeur):
         if not isinstance(valeur, list):
             raise serializers.ValidationError("Une liste de pôles est attendue (vide : tous les pôles).")
-        inconnus = sorted(set(valeur) - set(POLES))
+        # `str` d'abord : un élément qui n'est pas un texte (un nombre, une liste) n'est pas hachable ou pas un pôle connu.
+        poles = {str(pole) for pole in valeur}
+        inconnus = sorted(poles - set(POLES))
         if inconnus:
-            raise serializers.ValidationError(f"Pôles inconnus : {', '.join(map(str, inconnus))}.")
-        return sorted(set(valeur))
+            raise serializers.ValidationError(f"Pôles inconnus : {', '.join(inconnus)}.")
+        return sorted(poles)
 
     def validate(self, attrs):
         contenu = attrs.get("contenu", getattr(self.instance, "contenu", ""))

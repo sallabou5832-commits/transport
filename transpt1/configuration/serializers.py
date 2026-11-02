@@ -25,10 +25,14 @@ def _verifier_niveaux(attrs, company_id):
 
 
 def _verifier_fonctions(valeur):
-    inconnues = sorted(set(valeur) - set(regles.FONCTIONS))
+    if not isinstance(valeur, list):
+        raise serializers.ValidationError("Liste de fonctions attendue.")
+    # `str` d'abord : un élément qui n'est pas un texte (un nombre, une liste) n'est pas hachable ou pas une fonction connue.
+    fonctions = {str(fonction) for fonction in valeur}
+    inconnues = sorted(fonctions - set(regles.FONCTIONS))
     if inconnues:
         raise serializers.ValidationError(f"Fonction(s) inconnue(s) : {', '.join(inconnues)}.")
-    return sorted(set(valeur))
+    return sorted(fonctions)
 
 
 class CadreCompagnieSerializer(serializers.ModelSerializer):

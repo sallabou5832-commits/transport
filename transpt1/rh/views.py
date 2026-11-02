@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from alertes.models import GraviteAlerte, TypeAlerte
 from alertes.services import alerter
 from configuration.regles import roles_configurables_par
+from core.entiers import lire_entier
 from core.mixins import ActeurAuditeMixin, CompanyScopedQuerysetMixin
 from core.models import Role
 from core.serializers import nom_complet
@@ -90,9 +91,9 @@ class RhViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
     def _filtrer(self, queryset, *champs):
         """Filtres d'URL sur des identifiants (`?agent=12`)."""
         for champ in champs:
-            valeur = self.request.query_params.get(champ, "")
-            if valeur.isdigit():
-                queryset = queryset.filter(**{f"{champ}_id": int(valeur)})
+            valeur = lire_entier(self.request.query_params.get(champ))
+            if valeur is not None:
+                queryset = queryset.filter(**{f"{champ}_id": valeur})
         return queryset
 
 
@@ -134,8 +135,9 @@ class SuiviFormationsView(ActeurAuditeMixin, APIView):
     def get(self, request):
         visibles_ids = set(agents_visibles(request.user, FORMATIONS_LARGE).values_list("pk", flat=True))
         lignes = [l for l in services.suivi_formations(request.user.company) if l["agent"] in visibles_ids]
-        if request.query_params.get("agent", "").isdigit():
-            lignes = [l for l in lignes if l["agent"] == int(request.query_params["agent"])]
+        agent = lire_entier(request.query_params.get("agent"))
+        if agent is not None:
+            lignes = [l for l in lignes if l["agent"] == agent]
         resume = services.resume_formations(lignes)
         if request.query_params.get("etat") in services.ORDRE_ETATS:
             lignes = [l for l in lignes if l["etat"] == request.query_params["etat"]]
@@ -353,7 +355,7 @@ class FichesPosteView(ActeurAuditeMixin, APIView):
 
     def put(self, request):
         role = request.data.get("role")
-        if role not in fiches_types.FICHES_TYPES:
+        if not isinstance(role, str) or role not in fiches_types.FICHES_TYPES:
             raise ValidationError({"role": "Ce poste n'existe pas dans l'organigramme."})
         fiche = FicheDePoste.objects.filter(company=request.user.company, role=role).first() or FicheDePoste(company=request.user.company, role=role)
         serializer = FicheDePosteSerializer(fiche, data=request.data)

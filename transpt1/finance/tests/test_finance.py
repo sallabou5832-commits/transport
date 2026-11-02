@@ -580,3 +580,19 @@ class TestExport:
         df_b = user_factory("df_b_exp", Role.DIRECTEUR_FINANCIER, company=company_b)
 
         assert "Secret de A" not in self.exporter(api_client, df_b, type="depenses").content.decode("utf-8")
+
+    def test_un_texte_qui_ressemble_a_une_formule_n_est_pas_execute_par_excel(self, api_client, equipe):
+        df = equipe["directeur_financier"]
+        depenser(api_client, df, libelle="=2+5", montant="1500.50")
+        depenser(api_client, df, libelle="-Remise exceptionnelle", montant="100")
+        piege = api_client.post("/api/fournisseurs/", {"nom": "@SOMME(A1:A9)", "categorie": "Pièces"}, format="json").data["id"]
+        facturer(api_client, df, piege, echeance=jour(5).isoformat(), reference="+225 07 00")
+
+        depenses = self.lignes(self.exporter(api_client, df, type="depenses"))
+        factures = self.lignes(self.exporter(api_client, df, type="factures", date_fin=jour(30).isoformat()))
+        tresorerie = self.lignes(self.exporter(api_client, df, type="tresorerie"))
+
+        assert sorted(ligne[2] for ligne in depenses[1:]) == ["'-Remise exceptionnelle", "'=2+5"]
+        assert factures[1][0] == "'@SOMME(A1:A9)" and factures[1][2] == "'+225 07 00"
+        # Les montants, même négatifs, restent des nombres pour Excel.
+        assert tresorerie[-1][1:] == ["0,00", "1600,50", "-1600,50"]

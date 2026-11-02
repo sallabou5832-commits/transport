@@ -241,6 +241,14 @@ REST_FRAMEWORK = {
     ),
     # Facultative : sans ?limit=, les listes restent entières (voir core/pagination.py).
     'DEFAULT_PAGINATION_CLASS': 'core.pagination.PaginationFacultative',
+    # Suppression d'un élément encore utilisé : 409 au lieu de 500 (voir core/exceptions.py).
+    'EXCEPTION_HANDLER': 'core.exceptions.gestionnaire_exceptions',
+    # Un corps JSON qui n'est pas un objet : 400 au lieu de 500 (voir core/parsers.py).
+    'DEFAULT_PARSER_CLASSES': (
+        'core.parsers.AnalyseurJSON',
+        'rest_framework.parsers.FormParser',
+        'rest_framework.parsers.MultiPartParser',
+    ),
 }
 
 

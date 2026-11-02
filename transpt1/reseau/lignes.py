@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from alertes.models import GraviteAlerte, TypeAlerte
 from alertes.services import alerter
 from core.models import Role
+from core.textes import lire_texte
 from reseau.models import ActionChangementLigne, ChangementLigne, StatutChangementLigne, StatutLigne
 
 DECIDEURS = {Role.DIRECTEUR_EXPLOITATION, Role.PDG}
@@ -36,7 +37,7 @@ def _date(jour):
 def enregistrer(ligne, utilisateur, *, action, motif, jusqu_au=None):
     """Enregistre une demande de fermeture ou de réouverture. Faite par la direction des opérations ou le PDG, elle
     s'applique aussitôt ; faite par un chef de ligne ou de gare, elle attend la décision du directeur des opérations."""
-    motif = (motif or "").strip()
+    motif = lire_texte(motif)
     if action not in ActionChangementLigne.values:
         raise ValidationError({"action": "Action attendue : fermer ou rouvrir."})
     if len(motif) < MOTIF_MIN:
@@ -80,7 +81,7 @@ def decider(changement, utilisateur, *, decision, commentaire=""):
     """Le directeur des opérations (ou le PDG) valide ou refuse une demande."""
     if changement.statut != StatutChangementLigne.EN_ATTENTE:
         raise ValidationError("Cette demande a déjà été traitée.")
-    commentaire = (commentaire or "").strip()[:255]
+    commentaire = lire_texte(commentaire, 255)
     if decision == "valider":
         _appliquer(changement, utilisateur, commentaire)
         return changement

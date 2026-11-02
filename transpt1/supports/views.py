@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from billetterie.models import ModePaiement, StatutTicket, Ticket
 from colis.models import Colis, StatutColis
 from core.dates import lire_date
+from core.entiers import lire_entier
 from communication.poles import POLES
 from core.fichiers import nom_affichable, reponse_en_telechargement, verifier_fichier
 from core.mixins import ActeurAuditeMixin, CompanyScopedQuerysetMixin
@@ -170,8 +171,9 @@ class PieceSinistreViewSet(SupportsViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.request.query_params.get("sinistre", "").isdigit():
-            queryset = queryset.filter(sinistre_id=int(self.request.query_params["sinistre"]))
+        sinistre = lire_entier(self.request.query_params.get("sinistre"))
+        if sinistre is not None:
+            queryset = queryset.filter(sinistre_id=sinistre)
         return queryset
 
     def perform_create(self, serializer):

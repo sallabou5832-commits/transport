@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 
 from billetterie.models import Depart, DepartStatut, StatutTicket, Ticket
 from colis.models import Colis, StatutColis
+from core.entiers import lire_entier
 from core.models import Company, Role, User
 from core.serializers import nom_complet
 from dashboard.permissions import IsDirection, IsExploitation, IsQhse, IsSuperadmin, PeutVoirLaCarte, PeutVoirLaSanteDeLaGare
@@ -320,8 +321,8 @@ class DashboardGareView(APIView):
             if gare is None:
                 raise NotFound("Aucune gare ne vous est rattachée.")
         else:
-            brut = request.query_params.get("gare", "")
-            gare = Gare.objects.filter(company=user.company, pk=int(brut)).first() if brut.isdigit() else None
+            gare_id = lire_entier(request.query_params.get("gare"))
+            gare = Gare.objects.filter(company=user.company, pk=gare_id).first() if gare_id is not None else None
             if gare is None:
                 raise ValidationError({"gare": "Indiquez une gare de votre compagnie (?gare=)."})
 

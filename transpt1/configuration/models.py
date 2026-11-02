@@ -26,6 +26,23 @@ class ConfigurationCompagnie(models.Model):
         return f"Cadre de {self.company}"
 
 
+class ReglementInterieur(models.Model):
+    """Ce que la compagnie permet ou non à certains postes (voir `regles.REGLEMENT`), réglé par le PDG et, pour son pôle,
+    par chaque directeur. Seules les règles réglées sont enregistrées : les autres suivent le défaut du socle."""
+
+    company = models.OneToOneField(Company, on_delete=models.CASCADE, related_name="reglement_interieur")
+    regles = models.JSONField(default=dict, blank=True)  # {code de `regles.REGLEMENT`: permis}
+    modifie_par = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    modifie_le = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name = "règlement intérieur"
+        verbose_name_plural = "règlements intérieurs"
+
+    def __str__(self):
+        return f"Règlement intérieur de {self.company}"
+
+
 class ConfigurationPoste(models.Model):
     """Les réglages d'un poste dans une compagnie, faits par l'échelon directement supérieur (ou le PDG). Une valeur
     vide (`null`) laisse le défaut du socle."""

@@ -2,7 +2,6 @@ from django.db import transaction
 from django.db.models import F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.dateparse import parse_date
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -12,6 +11,9 @@ from rest_framework.views import APIView
 
 from alertes.models import GraviteAlerte, TypeAlerte
 from alertes.services import alerter
+from configuration.services import exiger_regle
+from core.dates import lire_date
+from core.entiers import lire_entier
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role, User
 from core.permissions import IsSameCompany
@@ -49,6 +51,11 @@ from maintenance.serializers import (
     SortiePieceSerializer,
 )
 from reseau.models import Vehicule
+
+# Bornes des colonnes et de l'affichage : au-delà, PostgreSQL refuse la valeur (PositiveIntegerField) ou le retour estimé
+# dépasse l'an 9999.
+KILOMETRAGE_MAX = 2_147_483_647
+DELAI_ESTIME_MAX_HEURES = 100_000
 
 
 class MaintenanceViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
@@ -108,6 +115,17 @@ class OrdreReparationViewSet(MaintenanceViewSet):
             cree_par=self.request.user,
         )
 
+    def perform_update(self, serializer):
+        # Le règlement intérieur dit si le mécanicien peut confier lui-même son ordre à un collègue (sinon : `reaffecter`).
+        nouveau = serializer.validated_data.get("mecanicien")
+        if nouveau is not None and nouveau.pk != serializer.instance.mecanicien_id:
+            exiger_regle(self.request.user, "mecanicien_confie_ses_ordres")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        exiger_regle(self.request.user, "mecanicien_supprime_ses_ordres")
+        super().perform_destroy(instance)
+
     @action(detail=False, methods=["get"], url_path="file-attente", permission_classes=[IsAuthenticated, IsSameCompany])
     def file_attente(self, request):
         """La file d'attente de l'atelier : les réparations à faire, la plus urgente d'abord (puis la position choisie par le
@@ -156,10 +174,13 @@ class OrdreReparationViewSet(MaintenanceViewSet):
         if delai is not None:
             try:
                 delai = int(delai)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 raise ValidationError({"delai_estime_heures": "Nombre d'heures attendu."})
             if delai < 1:
                 raise ValidationError({"delai_estime_heures": "Au moins une heure."})
+            # Au-delà, le retour estimé (date de création + délai) dépasse l'an 9999 et fait échouer l'affichage de la file.
+            if delai > DELAI_ESTIME_MAX_HEURES:
+                raise ValidationError({"delai_estime_heures": f"Au plus {DELAI_ESTIME_MAX_HEURES} heures."})
         devenue_critique = urgence == UrgenceReparation.CRITIQUE and ordre.urgence != UrgenceReparation.CRITIQUE
         if urgence is not None:
             ordre.urgence = urgence
@@ -186,8 +207,12 @@ class OrdreReparationViewSet(MaintenanceViewSet):
         ordre = self.get_object()
         if ordre.statut == StatutOrdreReparation.TERMINE:
             raise ValidationError("Cet ordre est terminé.")
-        brut = str(request.data.get("mecanicien", "")).strip()
-        nouveau = User.objects.filter(pk=int(brut), company=request.user.company, is_active=True).first() if brut.isdigit() else None
+        mecanicien_id = lire_entier(request.data.get("mecanicien"))
+        nouveau = (
+            User.objects.filter(pk=mecanicien_id, company=request.user.company, is_active=True).first()
+            if mecanicien_id is not None
+            else None
+        )
         if nouveau is None or nouveau.role not in ROLES_INTERVENANTS:
             raise ValidationError({"mecanicien": "Choisissez un mécanicien (ou le chef d'atelier) de votre compagnie."})
         if nouveau.pk == ordre.mecanicien_id:
@@ -225,6 +250,14 @@ class SortiePieceViewSet(MaintenanceViewSet):
             auteur=user,
         )
 
+    def perform_update(self, serializer):
+        exiger_regle(self.request.user, "sorties_pieces_corrigeables")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        exiger_regle(self.request.user, "sorties_pieces_corrigeables")
+        super().perform_destroy(instance)
+
 
 class PlanEntretienViewSet(MaintenanceViewSet):
     """Les plans d'entretien préventif des véhicules. Lecture pour tous ; les déclarer, les modifier ou les retirer : le technique."""
@@ -235,8 +268,9 @@ class PlanEntretienViewSet(MaintenanceViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.request.query_params.get("vehicule", "").isdigit():
-            queryset = queryset.filter(vehicule_id=int(self.request.query_params["vehicule"]))
+        vehicule = lire_entier(self.request.query_params.get("vehicule"))
+        if vehicule is not None:
+            queryset = queryset.filter(vehicule_id=vehicule)
         return queryset
 
     @action(detail=False, methods=["get"], url_path="echeances")
@@ -254,14 +288,14 @@ class PlanEntretienViewSet(MaintenanceViewSet):
         brut = request.data.get("date")
         date = None
         if brut not in (None, ""):
-            date = parse_date(str(brut))
+            date = lire_date(brut)
             if date is None or date > timezone.localdate():
                 raise ValidationError({"date": "Date passée attendue (AAAA-MM-JJ)."})
         km = request.data.get("km")
         if km not in (None, ""):
-            if not str(km).isdigit():
+            km = lire_entier(km)
+            if km is None or km > KILOMETRAGE_MAX:
                 raise ValidationError({"km": "Kilométrage attendu."})
-            km = int(km)
         else:
             km = None
         preventif.renouveler(plan, date=date, km=km)

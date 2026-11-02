@@ -52,10 +52,12 @@ class ObligationFormationSerializer(serializers.ModelSerializer):
     def validate_roles(self, valeur):
         if not isinstance(valeur, list) or not valeur:
             raise serializers.ValidationError("Indiquez au moins un poste concerné.")
-        inconnus = sorted(set(valeur) - ROLES_VALIDES)
+        # `str` d'abord : un élément qui n'est pas un texte (un nombre, une liste) n'est pas hachable ou pas un poste connu.
+        postes = {str(poste) for poste in valeur}
+        inconnus = sorted(postes - ROLES_VALIDES)
         if inconnus:
-            raise serializers.ValidationError(f"Postes inconnus : {', '.join(map(str, inconnus))}.")
-        return sorted(set(valeur))
+            raise serializers.ValidationError(f"Postes inconnus : {', '.join(inconnus)}.")
+        return sorted(postes)
 
 
 class FormationSuivieSerializer(serializers.ModelSerializer):

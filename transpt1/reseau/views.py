@@ -1,5 +1,4 @@
 from django.contrib.auth import get_user_model
-from django.utils.dateparse import parse_date
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -7,6 +6,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from billetterie.permissions import DISPATCH_ROLES
+from core.dates import lire_date
+from core.entiers import lire_entier
 from core.mixins import CompanyScopedQuerysetMixin
 from core.permissions import IsSameCompany
 from core.serializers import nom_complet
@@ -65,7 +66,7 @@ class LigneViewSet(CompanyOwnedViewSet):
         brut = request.data.get("jusqu_au")
         jusqu_au = None
         if brut not in (None, ""):
-            jusqu_au = parse_date(str(brut))
+            jusqu_au = lire_date(brut)
             if jusqu_au is None:
                 raise ValidationError({"jusqu_au": "Date attendue (AAAA-MM-JJ)."})
         changement = service_lignes.enregistrer(
@@ -91,8 +92,9 @@ class ChangementLigneViewSet(
         parametres = self.request.query_params
         if parametres.get("statut") in StatutChangementLigne.values:
             queryset = queryset.filter(statut=parametres["statut"])
-        if parametres.get("ligne", "").isdigit():
-            queryset = queryset.filter(ligne_id=int(parametres["ligne"]))
+        ligne = lire_entier(parametres.get("ligne"))
+        if ligne is not None:
+            queryset = queryset.filter(ligne_id=ligne)
         return queryset
 
     @action(detail=True, methods=["post"], url_path="decider", permission_classes=[IsAuthenticated, IsSameCompany, PeutArbitrer])
@@ -116,8 +118,8 @@ class VehiculeViewSet(CompanyOwnedViewSet):
         """Arbitrage entre gares : rattache le véhicule à une autre gare d'attache (`gare`, `motif`). Les chefs des deux gares
         et la régulation en sont prévenus."""
         vehicule = self.get_object()
-        brut = str(request.data.get("gare", "")).strip()
-        gare = Gare.objects.filter(pk=int(brut), company_id=request.user.company_id).first() if brut.isdigit() else None
+        gare_id = lire_entier(request.data.get("gare"))
+        gare = Gare.objects.filter(pk=gare_id, company_id=request.user.company_id).first() if gare_id is not None else None
         if gare is None:
             raise ValidationError({"gare": "Choisissez une gare de votre compagnie."})
         motif = str(request.data.get("motif", "")).strip()

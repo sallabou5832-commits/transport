@@ -7,6 +7,7 @@ from alertes.models import GraviteAlerte, TypeAlerte
 from alertes.services import alerter
 from core.models import Role
 from core.serializers import nom_complet
+from core.textes import lire_texte
 from investissements.models import StatutInvestissement
 
 
@@ -32,7 +33,7 @@ def annoncer_demande(investissement, demandeur):
 def decider(investissement, pdg, *, decision, commentaire=""):
     if investissement.statut != StatutInvestissement.EN_ATTENTE:
         raise ValidationError("Cette demande a déjà été traitée.")
-    commentaire = (commentaire or "").strip()[:255]
+    commentaire = lire_texte(commentaire, 255)
     if decision not in ("valider", "refuser"):
         raise ValidationError({"decision": "Décision attendue : valider ou refuser."})
     if decision == "refuser" and len(commentaire) < 3:

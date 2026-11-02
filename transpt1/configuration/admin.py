@@ -1,11 +1,16 @@
 from django.contrib import admin
 
-from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste
+from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste, ReglementInterieur
 
 
 @admin.register(ConfigurationCompagnie)
 class ConfigurationCompagnieAdmin(admin.ModelAdmin):
     list_display = ["company", "automatisation_max", "gamification_max", "modifie_le"]
+
+
+@admin.register(ReglementInterieur)
+class ReglementInterieurAdmin(admin.ModelAdmin):
+    list_display = ["company", "modifie_par", "modifie_le"]
 
 
 @admin.register(ConfigurationPoste)

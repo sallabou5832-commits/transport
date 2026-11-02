@@ -19,9 +19,11 @@ from alertes.models import GraviteAlerte, TypeAlerte
 from alertes.services import alerter, chef_de_gare_du_depart, chefs_de_gare_du_vehicule
 from billetterie.models import DepartStatut
 from colis import services as colis_services
+from configuration.services import exiger_regle
 from dashboard.ponctualite import bornes_du_jour
 from core.mixins import CompanyScopedQuerysetMixin
 from core.dates import lire_date
+from core.entiers import lire_entier
 from core.models import Role
 from core.permissions import IsSameCompany
 from personnel_roulant.models import (
@@ -113,9 +115,10 @@ class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
             return queryset
         params = self.request.query_params
         if "chauffeur" in params:
-            if not params["chauffeur"].isdigit():
+            chauffeur = lire_entier(params["chauffeur"])
+            if chauffeur is None:
                 raise ValidationError({"chauffeur": "Identifiant entier attendu."})
-            queryset = queryset.filter(chauffeur_id=int(params["chauffeur"]))
+            queryset = queryset.filter(chauffeur_id=chauffeur)
         if "date" in params:
             jour = lire_date(params["date"])
             if jour is None:
@@ -123,6 +126,10 @@ class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
             debut, fin = bornes_du_jour(timezone.make_aware(datetime.datetime.combine(jour, datetime.time(12))))
             queryset = queryset.filter(heure_depart_prevue__gte=debut, heure_depart_prevue__lt=fin)
         return queryset
+
+    def perform_destroy(self, instance):
+        exiger_regle(self.request.user, "chauffeur_supprime_ses_feuilles")
+        super().perform_destroy(instance)
 
     @action(detail=True, methods=["post"], url_path="demarrer")
     def demarrer(self, request, pk=None):
@@ -228,8 +235,8 @@ class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
         ):
             raise PermissionDenied("Seul le conducteur du trajet ou la régulation organise un relais.")
         try:
-            nouveau = get_user_model().objects.get(pk=int(request.data.get("relais")), company_id=feuille.company_id)
-        except (TypeError, ValueError, get_user_model().DoesNotExist):
+            nouveau = get_user_model().objects.get(pk=lire_entier(request.data.get("relais")), company_id=feuille.company_id)
+        except get_user_model().DoesNotExist:
             raise ValidationError({"relais": "Indiquez le conducteur qui reprend le trajet."})
         relais = suivi.effectuer_relais(feuille, nouveau, request.data.get("lieu"), user)
         return Response(
@@ -335,6 +342,10 @@ class IncidentViewSet(PersonnelRoulantViewSet):
         # Un incident requalifié en « grave » prévient les mêmes pôles qu'un incident déclaré grave d'emblée.
         if not etait_grave and serializer.instance.gravite == GraviteIncident.GRAVE:
             self._alerter(serializer.instance)
+
+    def perform_destroy(self, instance):
+        exiger_regle(self.request.user, "chauffeur_supprime_ses_incidents")
+        super().perform_destroy(instance)
 
     @staticmethod
     def _alerter(incident):
@@ -450,6 +461,7 @@ class PositionViewSet(viewsets.GenericViewSet):
     serializer_class = PositionSerializer
     permission_classes = [IsAuthenticated]
     queryset = PositionVehicule.objects.none()
+    corps_json_liste = True  # l'envoi en lot est une liste JSON (voir core/parsers.py)
 
     def create(self, request):
         user = request.user
@@ -529,8 +541,9 @@ class RelaisViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, CompanySco
             queryset = queryset.filter(Q(ancien_chauffeur=user) | Q(nouveau_chauffeur=user))
         elif user.role not in ROLES_SUIVI_TRAJETS:
             return queryset.none()
-        if self.request.query_params.get("feuille", "").isdigit():
-            queryset = queryset.filter(feuille_de_route_id=int(self.request.query_params["feuille"]))
+        feuille = lire_entier(self.request.query_params.get("feuille"))
+        if feuille is not None:
+            queryset = queryset.filter(feuille_de_route_id=feuille)
         return queryset
 
     @action(detail=True, methods=["post"], url_path="reprise")
@@ -563,10 +576,12 @@ class ControleLigneViewSet(
         if user.role == Role.CONTROLEUR_LIGNE:  # chacun ses contrôles ; la supervision voit ceux de la compagnie
             queryset = queryset.filter(controleur=user)
         parametres = self.request.query_params
-        if parametres.get("ligne", "").isdigit():
-            queryset = queryset.filter(feuille_de_route__depart__ligne_id=int(parametres["ligne"]))
-        if parametres.get("chauffeur", "").isdigit():
-            queryset = queryset.filter(feuille_de_route__chauffeur_id=int(parametres["chauffeur"]))
+        ligne = lire_entier(parametres.get("ligne"))
+        if ligne is not None:
+            queryset = queryset.filter(feuille_de_route__depart__ligne_id=ligne)
+        chauffeur = lire_entier(parametres.get("chauffeur"))
+        if chauffeur is not None:
+            queryset = queryset.filter(feuille_de_route__chauffeur_id=chauffeur)
         if parametres.get("ouvert") == "1":
             queryset = queryset.filter(cloture_le__isnull=True)
         if parametres.get("infraction") == "1":
@@ -634,22 +649,29 @@ class ControleLigneViewSet(
         controle = self._controle_du_controleur()
         donnees = request.data
 
-        def nombre(champ, type_):
+        def nombre(champ, type_, maximum):
+            """Un nombre positif ou nul que la colonne peut stocker : « NaN », « Infinity » et les valeurs démesurées
+            sont refusés ici, sinon PostgreSQL les rejette (erreur 500)."""
             valeur = donnees.get(champ)
             if valeur in (None, ""):
                 return None
             try:
                 resultat = type_(str(valeur))
+                negatif = resultat < 0  # lève InvalidOperation pour « NaN »
+                trop_grand = resultat > maximum
             except (ValueError, InvalidOperation):
                 raise ValidationError({champ: "Nombre attendu."})
-            if resultat < 0:
+            if negatif:
                 raise ValidationError({champ: "Ne peut pas être négatif."})
+            if trop_grand:
+                raise ValidationError({champ: f"Ne peut pas dépasser {maximum}."})
             return resultat
 
+        # Bornes des colonnes : PositiveIntegerField (2 147 483 647) et DecimalField(8, 2) (999 999,99).
         controle_service.cloturer(
             controle,
-            passagers_constates=nombre("passagers_constates", int),
-            charge_constatee_kg=nombre("charge_constatee_kg", Decimal),
+            passagers_constates=nombre("passagers_constates", int, 2_147_483_647),
+            charge_constatee_kg=nombre("charge_constatee_kg", Decimal, Decimal("999999.99")),
             commentaire=str(donnees.get("commentaire", "")).strip(),
             infraction_grave=bool(donnees.get("infraction_grave")),
             motif=str(donnees.get("motif_infraction", "")).strip(),

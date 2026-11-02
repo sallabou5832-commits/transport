@@ -9,10 +9,13 @@ Le compteur vit dans le cache de Django : celui par défaut est propre à chaque
 machines, configurer un cache partagé (voir DEPLOIEMENT.md), sans quoi la limite réelle est multipliée d'autant.
 """
 
+import hashlib
+
 from django.conf import settings
 from rest_framework.throttling import SimpleRateThrottle
 
 from audit.contexte import adresse_ip_de
+from core.textes import champ_du_corps
 
 
 class _ThrottleConnexion(SimpleRateThrottle):
@@ -34,7 +37,9 @@ class ThrottleConnexionCompte(_ThrottleConnexion):
     reglage = "CONNEXION_LIMITE_COMPTE"
 
     def identifiant(self, request, adresse):
-        return f"{adresse}:{str(request.data.get('username', ''))[:150].lower()}"
+        # Tout caractère est permis dans un identifiant saisi, pas dans une clé de cache : on n'en garde que l'empreinte.
+        nom = champ_du_corps(request.data, "username", 150).lower()
+        return f"{adresse}:{hashlib.sha256(nom.encode()).hexdigest()[:32]}"
 
 
 class ThrottleConnexionAdresse(_ThrottleConnexion):

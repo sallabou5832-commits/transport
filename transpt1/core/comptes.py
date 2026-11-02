@@ -12,6 +12,7 @@ from alertes.models import GraviteAlerte, TypeAlerte
 from alertes.services import alerter
 from core.models import Role
 from core.serializers import nom_complet
+from core.textes import lire_texte
 
 MOTIF_MIN = 5
 # Ce que le PDG ne suspend pas ici : lui-même, un autre PDG, l'opérateur de la plateforme.
@@ -39,7 +40,7 @@ def _prevenir(agent, auteur, *, titre, message, gravite):
 
 
 def suspendre(agent, par, motif):
-    motif = (motif or "").strip()
+    motif = lire_texte(motif)
     if agent.pk == par.pk:
         raise ValidationError("Vous ne pouvez pas suspendre votre propre compte.")
     if agent.role in ROLES_INTOUCHABLES:
@@ -62,12 +63,12 @@ def suspendre(agent, par, motif):
 
 
 def reactiver(agent, par, motif=""):
+    motif = lire_texte(motif)
     if agent.is_active:
         raise ValidationError("Ce compte n'est pas suspendu.")
     agent.is_active = True
     agent.suspendu_le, agent.suspendu_par, agent.motif_suspension = None, None, ""
     agent.save(update_fields=["is_active", "suspendu_le", "suspendu_par", "motif_suspension"])
-    motif = (motif or "").strip()
     _prevenir(
         agent,
         par,

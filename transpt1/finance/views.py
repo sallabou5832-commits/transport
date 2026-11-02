@@ -1,5 +1,6 @@
 import csv
 import datetime
+import re
 
 from django.db import transaction
 from django.http import HttpResponse
@@ -12,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.dates import lire_date
+from core.entiers import lire_entier
 from core.mixins import ActeurAuditeMixin, CompanyScopedQuerysetMixin
 from core.permissions import IsSameCompany
 from finance import alertes, analyses
@@ -73,8 +75,9 @@ class DepenseViewSet(FinanceViewSet):
             queryset = queryset.filter(date__lte=fin)
         if parametres.get("categorie") in CategorieDepense.values:
             queryset = queryset.filter(categorie=parametres["categorie"])
-        if parametres.get("ligne", "").isdigit():
-            queryset = queryset.filter(ligne_id=int(parametres["ligne"]))
+        ligne = lire_entier(parametres.get("ligne"))
+        if ligne is not None:
+            queryset = queryset.filter(ligne_id=ligne)
         return queryset
 
     def _verifier_budget(self, depense):
@@ -205,6 +208,19 @@ def _nombre(valeur):
     return "" if valeur is None else f"{valeur:.2f}".replace(".", ",")
 
 
+# Excel lit comme une formule une cellule qui commence par l'un de ces caractères : un libellé « =LIEN_HYPERTEXTE(...) » saisi
+# par un agent s'exécuterait chez celui qui ouvre l'export. Une apostrophe en tête l'en empêche ; un montant (« -1500,50 »)
+# reste un nombre.
+DEBUTS_DE_FORMULE = ("=", "+", "-", "@", "\t", "\r")
+MONTANT = re.compile(r"-?\d+(?:,\d+)?")
+
+
+def _cellule(valeur):
+    if isinstance(valeur, str) and valeur.startswith(DEBUTS_DE_FORMULE) and not MONTANT.fullmatch(valeur):
+        return "'" + valeur
+    return valeur
+
+
 class ExportView(_LectureFinance):
     """Reporting financier prêt à partager, en CSV (s'ouvre dans Excel) : `?type=rentabilite|depenses|factures|tresorerie`, avec
     `date_debut` et `date_fin`. Pour un PDF, le site imprime la même vue."""
@@ -249,5 +265,5 @@ class ExportView(_LectureFinance):
         reponse.write("﻿")  # signature UTF-8 : Excel affiche correctement les accents
         ecrivain = csv.writer(reponse, delimiter=";")
         ecrivain.writerow(entete)
-        ecrivain.writerows(lignes)
+        ecrivain.writerows([_cellule(valeur) for valeur in ligne] for ligne in lignes)
         return reponse

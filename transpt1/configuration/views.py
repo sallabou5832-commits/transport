@@ -1,22 +1,23 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from configuration import regles
-from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste
+from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste, ReglementInterieur
 from configuration.regles import AisanceNumerique, NiveauAutomatisation, NiveauGamification
 from configuration.serializers import (
     CadreCompagnieSerializer,
     ConfigurationAgentSerializer,
     ConfigurationPosteSerializer,
 )
-from configuration.services import cadre_de, configuration_effective
+from configuration.services import cadre_de, configuration_effective, reglement_de
 from core.mixins import ActeurAuditeMixin
 from core.models import Role
 
@@ -84,6 +85,57 @@ class CadreCompagnieView(ActeurAuditeMixin, RetrieveUpdateAPIView):
 
     def perform_update(self, serializer):
         serializer.save(modifie_par=self.request.user, modifie_le=timezone.now())
+
+
+class ReglementInterieurView(ActeurAuditeMixin, APIView):
+    """Le règlement intérieur de la compagnie : ce qu'elle permet ou non à certains postes. Tous le lisent ; le PDG règle
+    toutes les règles, chaque directeur celles de son pôle. `PATCH {code: vrai/faux, ...}` ne touche qu'aux règles données."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(self._donnees(request.user))
+
+    def patch(self, request):
+        user = request.user
+        if not any(regles.peut_regler(user, code) for code in regles.REGLEMENT):
+            raise PermissionDenied("Le règlement intérieur se règle par le PDG et, pour leur pôle, par les directeurs.")
+        if not isinstance(request.data, dict) or not request.data:
+            raise ValidationError("Indiquez les règles à régler : {code: vrai ou faux}.")
+        erreurs = {}
+        for code, permis in request.data.items():
+            if code not in regles.REGLEMENT:
+                erreurs[code] = "Règle inconnue."
+            elif not isinstance(permis, bool):
+                erreurs[code] = "Vrai ou faux attendu."
+        if erreurs:
+            raise ValidationError(erreurs)
+        hors_pole = sorted(code for code in request.data if not regles.peut_regler(user, code))
+        if hors_pole:
+            raise PermissionDenied(f"Ces règles ne relèvent pas de votre pôle : {', '.join(hors_pole)}.")
+        with transaction.atomic():
+            reglement, _ = ReglementInterieur.objects.select_for_update().get_or_create(company_id=user.company_id)
+            reglement.regles = {**reglement.regles, **request.data}
+            reglement.modifie_par = user
+            reglement.modifie_le = timezone.now()
+            reglement.save()
+        return Response(self._donnees(user))
+
+    @staticmethod
+    def _donnees(user):
+        permis = reglement_de(user.company_id)
+        return [
+            {
+                "code": code,
+                "libelle": regle.libelle,
+                "permis": permis[code],
+                "defaut": regle.defaut,
+                "postes": sorted(role.value for role in regle.roles),
+                "pole": regle.pole.value,
+                "modifiable": regles.peut_regler(user, code),
+            }
+            for code, regle in regles.REGLEMENT.items()
+        ]
 
 
 def _effectif_du_poste(role, configuration, cadre):

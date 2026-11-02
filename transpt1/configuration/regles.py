@@ -5,6 +5,8 @@ subordonné [...] dans le cadre fixé par la compagnie ». Le socle est livré c
 démarrer.
 """
 
+from typing import NamedTuple
+
 from core.models import Role
 
 
@@ -77,6 +79,67 @@ FONCTIONS = {
     "planification_departs": "Planifier des départs",
     "cloture_caisse": "Clôturer sa caisse",
 }
+
+class RegleInterne(NamedTuple):
+    libelle: str
+    refus: str  # le message du refus (403) quand la compagnie ne le permet pas
+    roles: frozenset  # les postes à qui la règle s'applique ; les autres n'en sont pas affectés
+    pole: Role  # le directeur qui la règle (le PDG règle toutes les règles)
+    defaut: bool  # le comportement du socle : une compagnie qui ne règle rien le garde
+
+
+_CHAUFFEURS = frozenset({Role.CHAUFFEUR_PRINCIPAL, Role.CHAUFFEUR_RELAIS})
+
+# Règlement intérieur : ce que chaque compagnie permet ou non à certains postes, à sa guise. Chaque règle est vérifiée par le
+# serveur (`services.exiger_regle`) au point indiqué ; son défaut est le comportement du socle.
+REGLEMENT = {
+    "sorties_pieces_corrigeables": RegleInterne(
+        libelle="Le magasin et l'atelier corrigent ou annulent une sortie de pièce après coup",
+        refus="Le règlement intérieur de la compagnie ne permet pas de corriger ni d'annuler une sortie de pièce.",
+        roles=frozenset({Role.MAGASINIER, Role.CHEF_ATELIER, Role.DIRECTEUR_TECHNIQUE}),
+        pole=Role.DIRECTEUR_TECHNIQUE,
+        defaut=True,
+    ),
+    "mecanicien_confie_ses_ordres": RegleInterne(
+        libelle="Le mécanicien confie lui-même son ordre de réparation à un collègue",
+        refus=(
+            "Le règlement intérieur de la compagnie ne permet pas au mécanicien de confier son ordre à un collègue : "
+            "demandez la réaffectation au chef d'atelier ou au directeur technique."
+        ),
+        roles=frozenset({Role.MECANICIEN}),
+        pole=Role.DIRECTEUR_TECHNIQUE,
+        defaut=True,
+    ),
+    "mecanicien_supprime_ses_ordres": RegleInterne(
+        libelle="Le mécanicien supprime son ordre de réparation",
+        refus="Le règlement intérieur de la compagnie ne permet pas au mécanicien de supprimer un ordre de réparation.",
+        roles=frozenset({Role.MECANICIEN}),
+        pole=Role.DIRECTEUR_TECHNIQUE,
+        defaut=True,
+    ),
+    "chauffeur_supprime_ses_feuilles": RegleInterne(
+        libelle="Le chauffeur supprime sa feuille de route",
+        refus="Le règlement intérieur de la compagnie ne permet pas au chauffeur de supprimer sa feuille de route.",
+        roles=_CHAUFFEURS,
+        pole=Role.DIRECTEUR_EXPLOITATION,
+        defaut=True,
+    ),
+    "chauffeur_supprime_ses_incidents": RegleInterne(
+        libelle="Le chauffeur supprime un incident qu'il a déclaré",
+        refus="Le règlement intérieur de la compagnie ne permet pas au chauffeur de supprimer un incident déclaré.",
+        roles=_CHAUFFEURS,
+        pole=Role.DIRECTEUR_EXPLOITATION,
+        defaut=True,
+    ),
+}
+
+
+def peut_regler(user, code):
+    """Le PDG règle tout le règlement intérieur ; un directeur, les règles de son pôle."""
+    if user.company_id is None:
+        return False
+    return user.role == Role.PDG or user.role == REGLEMENT[code].pole
+
 
 # Niveaux par défaut d'un poste (le socle « prêt à l'emploi »). Direction, secrétariat, RH, finance et juridique
 # démarrent sur un tableau sobre, sans classement : usage professionnel avant tout.

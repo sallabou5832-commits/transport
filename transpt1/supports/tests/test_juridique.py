@@ -297,7 +297,7 @@ class TestBibliothequeDeModeles:
         assert (reponse.data["categorie_libelle"], reponse.data["version"], reponse.data["poles_libelles"]) == ("Contrats et documents de travail", "2.1", ["Tous les pôles"])
         assert reponse.data["auteur_nom"] == "responsable_juridique_a" and reponse.data["a_un_fichier"] is False
 
-    @pytest.mark.parametrize("corps", [{"titre": " "}, {"contenu": ""}, {"categorie": "poesie"}, {"poles": ["astronomie"]}, {"poles": "technique"}])
+    @pytest.mark.parametrize("corps", [{"titre": " "}, {"contenu": ""}, {"categorie": "poesie"}, {"poles": ["astronomie"]}, {"poles": "technique"}, {"poles": [[1]]}, {"poles": [{"a": 1}]}, {"poles": [5]}])
     def test_les_modeles_invalides_sont_refuses(self, api_client, responsable_juridique_a, corps):
         assert self.creer(api_client, responsable_juridique_a, **corps).status_code == 400
 

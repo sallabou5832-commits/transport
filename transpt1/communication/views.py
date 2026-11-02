@@ -1,6 +1,5 @@
 from django.db.models import Q
 from django.utils import timezone
-from django.utils.dateparse import parse_date
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -25,6 +24,7 @@ from communication.serializers import (
     MessageDirectSerializer,
     NoteServiceSerializer,
 )
+from core.dates import lire_date
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
 from core.permissions import IsSameCompany
@@ -96,7 +96,7 @@ class EvenementAgendaViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
         parametres = self.request.query_params
         if parametres.get("a_venir") == "1":
             queryset = queryset.filter(Q(debut__gte=timezone.now()) | Q(fin__gte=timezone.now()))
-        du, au = parse_date(parametres.get("du", "")), parse_date(parametres.get("au", ""))
+        du, au = lire_date(parametres.get("du")), lire_date(parametres.get("au"))
         if du:
             queryset = queryset.filter(debut__date__gte=du)
         if au:

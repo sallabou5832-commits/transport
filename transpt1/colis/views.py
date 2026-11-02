@@ -15,6 +15,7 @@ from colis.models import MAX_TENTATIVES_CODE, Colis, StatutColis, generer_code
 from colis.permissions import ROLES_SUPERVISION_COLIS, CanUseColis
 from colis.serializers import ColisSerializer
 from configuration.services import exiger_fonction
+from core.entiers import lire_entier
 from core.mixins import CompanyScopedQuerysetMixin
 from core.models import Role
 from core.permissions import IsSameCompany
@@ -54,7 +55,8 @@ class ColisViewSet(
                 )
         parametres = self.request.query_params
         if parametres.get("depart"):
-            queryset = queryset.filter(depart_id=parametres["depart"]) if parametres["depart"].isdigit() else queryset.none()
+            depart = lire_entier(parametres["depart"])
+            queryset = queryset.filter(depart_id=depart) if depart is not None else queryset.none()
         if parametres.get("statut"):
             queryset = queryset.filter(statut__in=parametres["statut"].split(","))
         return queryset

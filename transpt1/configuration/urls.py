@@ -7,6 +7,7 @@ from configuration.views import (
     ConfigurationAgentViewSet,
     ConfigurationPosteViewSet,
     MaConfigurationView,
+    ReglementInterieurView,
 )
 
 router = DefaultRouter()
@@ -17,5 +18,6 @@ urlpatterns = [
     path("configuration/moi/", MaConfigurationView.as_view(), name="configuration-moi"),
     path("configuration/catalogue/", CatalogueView.as_view(), name="configuration-catalogue"),
     path("configuration/compagnie/", CadreCompagnieView.as_view(), name="configuration-compagnie"),
+    path("configuration/reglement/", ReglementInterieurView.as_view(), name="configuration-reglement"),
     *router.urls,
 ]

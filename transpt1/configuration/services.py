@@ -4,7 +4,7 @@ dépasser le cadre fixé par la compagnie."""
 from rest_framework.exceptions import PermissionDenied
 
 from configuration import regles
-from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste
+from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste, ReglementInterieur
 from configuration.regles import AisanceNumerique, NiveauAutomatisation, NiveauGamification
 
 
@@ -75,3 +75,19 @@ def exiger_fonction(user, code):
     """Refuse (403) si un échelon supérieur a retiré cette fonction au poste ou à l'agent."""
     if not fonction_active(user, code):
         raise PermissionDenied(f"Cette fonction est désactivée pour votre poste : {regles.FONCTIONS[code].lower()}.")
+
+
+def reglement_de(company_id):
+    """Le règlement intérieur de la compagnie, {code: permis} : le défaut du socle pour les règles qu'elle n'a pas réglées."""
+    valeurs = {code: regle.defaut for code, regle in regles.REGLEMENT.items()}
+    reglement = ReglementInterieur.objects.filter(company_id=company_id).first() if company_id is not None else None
+    if reglement is not None:
+        valeurs.update({code: permis for code, permis in reglement.regles.items() if code in valeurs})
+    return valeurs
+
+
+def exiger_regle(user, code):
+    """Refuse (403) si le règlement intérieur de la compagnie ne permet pas `code` au poste de l'utilisateur."""
+    regle = regles.REGLEMENT[code]
+    if user.role in regle.roles and not reglement_de(user.company_id)[code]:
+        raise PermissionDenied(regle.refus)

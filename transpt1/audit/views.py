@@ -10,7 +10,9 @@ from audit import contexte
 from audit.models import ActionAudit, JournalAudit
 from audit.serializers import JournalAuditSerializer
 from core.dates import lire_date
+from core.entiers import lire_entier
 from core.models import Role
+from core.textes import champ_du_corps
 from core.throttles import ThrottleConnexionAdresse, ThrottleConnexionCompte
 
 # Traçabilité pour l'audit et la conformité (cahier des charges) : la direction et le QHSE. Le journal d'une
@@ -48,10 +50,10 @@ class JournalAuditView(ListAPIView):
             if parametres.get(parametre):
                 entrees = entrees.filter(**{parametre: parametres[parametre]})
         if parametres.get("acteur"):
-            try:
-                entrees = entrees.filter(acteur_id=int(parametres["acteur"]))
-            except ValueError:
+            acteur = lire_entier(parametres["acteur"])
+            if acteur is None:
                 raise ValidationError({"acteur": "Identifiant invalide."})
+            entrees = entrees.filter(acteur_id=acteur)
         for parametre, filtre in (("date_debut", "date__date__gte"), ("date_fin", "date__date__lte")):
             if parametres.get(parametre):
                 date = lire_date(parametres[parametre])
@@ -89,7 +91,7 @@ class ConnexionAuditee(TokenObtainPairView):
         )
 
     def post(self, request, *args, **kwargs):
-        username = str(request.data.get("username", ""))[:150]
+        username = champ_du_corps(request.data, "username", 150)
         try:
             reponse = super().post(request, *args, **kwargs)
         except (AuthenticationFailed, InvalidToken):
