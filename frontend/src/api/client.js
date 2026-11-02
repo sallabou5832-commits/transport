@@ -17,26 +17,82 @@ export function clearTokens() {
   localStorage.removeItem('refresh_token')
 }
 
-/** Le jeton d'accès courant, pour ce qu'un en-tête `Authorization` ne peut pas faire (le flux de la
- * carte, `useFluxCarte.js`) : un navigateur ne pose pas d'en-tête sur une connexion WebSocket. */
+/** Le jeton d'accès courant, tel qu'il est stocké (peut avoir expiré : voir `obtenirJetonValide`). */
 export function getAccessToken() {
   return getTokens().access
 }
 
-async function refreshAccessToken() {
+// Qui doit savoir qu'une session est finie pour de bon (le jeton ne se renouvelle plus) : `AuthContext` s'y abonne pour
+// repasser à l'état « déconnecté » et laisser `ProtectedRoute` renvoyer vers la connexion, au lieu d'afficher des
+// « Erreur 401 » jusqu'au rechargement de la page.
+const ecouteursSessionExpiree = new Set()
+
+export function surSessionExpiree(ecouteur) {
+  ecouteursSessionExpiree.add(ecouteur)
+  return () => ecouteursSessionExpiree.delete(ecouteur)
+}
+
+function terminerSession() {
+  clearTokens()
+  ecouteursSessionExpiree.forEach((ecouteur) => ecouteur())
+}
+
+// Plusieurs requêtes qui reçoivent un 401 en même temps partagent un seul renouvellement : pas de rafale vers
+// `/auth/refresh/`, et pas de course où une réponse tardive écraserait le jeton d'une autre.
+let renouvellementEnCours = null
+
+function refreshAccessToken() {
+  renouvellementEnCours ??= renouveler().finally(() => {
+    renouvellementEnCours = null
+  })
+  return renouvellementEnCours
+}
+
+async function renouveler() {
   const { refresh } = getTokens()
   if (!refresh) return null
 
-  const response = await fetch(`${API_BASE_URL}/auth/refresh/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh }),
-  })
-  if (!response.ok) return null
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/refresh/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh }),
+    })
+    // Jeton de renouvellement refusé (expiré, révoqué, compte suspendu) : la session est finie. Toute autre réponse
+    // d'erreur (serveur en panne) ou une coupure réseau n'est pas une fin de session : on garde les jetons pour réessayer.
+    if (response.status === 400 || response.status === 401) return null
+    if (!response.ok) return undefined
 
-  const data = await response.json()
-  setTokens(data.access, null)
-  return data.access
+    const data = await response.json()
+    setTokens(data.access, null)
+    return data.access
+  } catch {
+    return undefined
+  }
+}
+
+/** Vrai si le jeton JWT est expiré ou le sera dans `margeSecondes` ; vrai aussi s'il est illisible. */
+export function jetonExpire(jeton, margeSecondes = 10, maintenantMs = Date.now()) {
+  try {
+    const charge = JSON.parse(atob(jeton.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof charge.exp !== 'number' || charge.exp * 1000 <= maintenantMs + margeSecondes * 1000
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Un jeton d'accès utilisable tout de suite, renouvelé si besoin ; `null` s'il n'y en a plus. Pour ce qu'un en-tête
+ * `Authorization` ne peut pas faire : le flux de la carte (`useFluxCarte.js`), car un navigateur ne pose pas d'en-tête sur
+ * une connexion WebSocket (et le serveur la coupe quand son jeton expire).
+ */
+export async function obtenirJetonValide() {
+  const { access, refresh } = getTokens()
+  if (access && !jetonExpire(access)) return access
+  if (!refresh) return null
+  const nouveau = await refreshAccessToken()
+  if (nouveau === null) terminerSession()
+  return nouveau || null
 }
 
 class ApiError extends Error {
@@ -66,8 +122,10 @@ async function envoyer(path, { method = 'GET', body, auth = true, brut = false }
         headers: { ...headers, Authorization: `Bearer ${newAccess}` },
         body: corps,
       })
-    } else {
-      clearTokens()
+      // Un jeton neuf refusé aussi : le compte n'existe plus ou est suspendu.
+      if (response.status === 401) terminerSession()
+    } else if (newAccess === null) {
+      terminerSession() // Renouvellement refusé (ou aucun jeton de renouvellement) : la session est finie.
     }
   }
   return response

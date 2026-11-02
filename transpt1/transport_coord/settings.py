@@ -239,6 +239,8 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Facultative : sans ?limit=, les listes restent entières (voir core/pagination.py).
+    'DEFAULT_PAGINATION_CLASS': 'core.pagination.PaginationFacultative',
 }
 
 
@@ -291,6 +293,10 @@ CACHES = {
     }
 }
 
+
+# Intervalle (secondes) auquel une connexion WebSocket de la carte revérifie que son compte est toujours actif, a toujours
+# le droit de voir la carte et que son jeton n'a pas expiré (voir `dashboard/consumers.py`, `_surveiller`).
+CARTE_REVALIDATION_SECONDES = config('CARTE_REVALIDATION_SECONDES', default=30, cast=float)
 
 # Carte temps réel (positions des cars poussées par WebSocket au lieu d'être rechargées à intervalle
 # régulier : voir dashboard/consumers.py, dashboard/routing.py, personnel_roulant/suivi.py). La couche de

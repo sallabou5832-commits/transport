@@ -11,6 +11,16 @@ signalant ce qui a changé depuis, et (2) reprend intégralement la sécurité �
 pas encore le 21 septembre (`tutelle`, la commande vocale mobile, les sauvegardes automatisées) — avec, pour chaque
 constat, la preuve dans le code (fichier et ligne).
 
+> **Mise à jour (6 octobre 2026).** Trois constats de ce rapport sont corrigés, avec leurs tests :
+> **F2** (`Vehicule.immatriculation` unique par compagnie : contrainte `vehicule_immatriculation_unique_par_compagnie`, migration
+> `reseau/0007`, refus clair par l'API), **F9** nouveau et corrigé dans la foulée (une connexion WebSocket de la carte n'était
+> vérifiée qu'à l'ouverture : un compte suspendu ou un jeton expiré continuait de recevoir les positions des cars ; elle est
+> maintenant revérifiée toutes les 30 s et coupée, voir `CARTE_REVALIDATION_SECONDES` dans `DEPLOIEMENT.md`) et le site qui, après un
+> renouvellement de jeton refusé, laissait l'utilisateur sur des « Erreur 401 » au lieu de le ramener à la connexion. Enfin, la **lecture des trajets** est restreinte aux postes dont le
+> travail l'exige : feuilles de route, checklists de sécurité et incidents n'étaient lisibles que par « tout rôle de la compagnie » (un
+> guichetier ou un agent RH lisait les trajets de tous les chauffeurs) ; un chauffeur ne voit maintenant que les siens, voir
+> `PERMISSIONS.md` §3. Les autres constats (F1, F3, F4, F5, F6, F8) sont **inchangés**.
+
 ## 1. Résumé
 
 **Verdict : un code exceptionnellement discipliné pour sa sécurité — permissions par rôle systématiques et
@@ -23,11 +33,12 @@ plupart identifiées dans `ANALYSE_PROJET.md`, et aucune n'est critique dans le 
 | # | Gravité | Constat | Statut |
 |---|---|---|---|
 | F1 | Moyenne | Jetons JWT dans `localStorage`, sans liste noire de révocation | **Toujours ouvert** |
-| F2 | Moyenne | `Vehicule.immatriculation` unique **sur toute la plateforme** (fuite d'information entre compagnies) | **Toujours ouvert** (la même faille sur `Piece.reference` a été corrigée) |
+| F2 | Moyenne | `Vehicule.immatriculation` unique **sur toute la plateforme** (fuite d'information entre compagnies) | **Corrigé le 6 octobre 2026** (comme `Piece.reference` avant lui) |
 | F3 | Faible | Aucune authentification à deux facteurs | **Toujours ouvert** |
 | F4 | Faible | Pas de `Content-Security-Policy` (filet de sécurité si un XSS apparaissait un jour) | **Toujours ouvert** |
 | F5 | Faible | Cache de limitation des connexions par défaut local au processus (`LocMemCache`) | **Connu, documenté**, à corriger au déploiement multi-worker |
 | F6 | Info | Vulnérabilités des dépendances non vérifiées cette fois encore (réseau non sollicité, voir §6) | **Non vérifié** |
+| F9 | Faible | Connexion WebSocket de la carte vérifiée à l'ouverture seulement : un compte suspendu ou un jeton expiré gardait la carte tant que la connexion restait ouverte | **Nouveau, corrigé le 6 octobre 2026** |
 | F8 | Faible | Carte temps réel (WebSocket, ajoutée après ce rapport le même jour) : jeton d'accès dans l'URL, risque borné mais réel pour les journaux d'accès | **Nouveau, documenté** (voir `DEPLOIEMENT.md`) |
 | — | — | Verrouillage des tickets, tarif imposé, unicité des pièces par compagnie, limitation des tentatives de connexion (429) | **Confirmés corrigés**, vérifiés dans le code aujourd'hui |
 | — | — | Module `tutelle` (nouveau, échange avec le Ministère) | **Examiné pour la première fois : rien à signaler** |
@@ -47,7 +58,7 @@ plupart identifiées dans `ANALYSE_PROJET.md`, et aucune n'est critique dans le 
 | Sauvegardes automatiques (`sauvegarde_base`, `verifier_sauvegarde`, `etat_sauvegarde`) | `transpt1/core/sauvegarde.py` | Toutes les commandes externes (`pg_dump`, `pg_restore`, `BACKUP_POST_COMMAND`) passent par `subprocess.run` avec une **liste** d'arguments — jamais `shell=True` — donc pas d'injection de commande par un nom de fichier ou une variable ; empreinte SHA-256, rotation, restauration réellement testée dans une base temporaire |
 
 La couverture fonctionnelle par poste (les 99 fonctionnalités du cahier) reste celle de `RAPPORT_CONFORMITE.md` §4
-(**62 complètes, 19 partielles, 18 absentes**) : aucun des commits depuis n'ajoute ou ne retire de fonctionnalité de
+(**62 complètes, 20 partielles, 17 absentes** — chiffre de la mise à jour du 24 septembre de `RAPPORT_CONFORMITE.md`) : aucun des commits depuis n'ajoute ou ne retire de fonctionnalité de
 ce tableau (`tutelle` et la commande vocale sont des briques techniques transverses, pas des lignes du cahier).
 
 ## 3. Sécurité, app par app
@@ -111,7 +122,7 @@ client HTTP) ; lecture du flux de CI.
 | # | Gravité | Constat | Preuve | Recommandation |
 |---|---|---|---|---|
 | F1 | Moyenne | Jetons d'accès et de rafraîchissement dans `localStorage` (lisibles par tout script injecté) ; `rest_framework_simplejwt.token_blacklist` n'est pas installé (`INSTALLED_APPS`, `transport_coord/settings.py:64-93`) : un jeton de rafraîchissement volé reste valable jusqu'à 24 h (`SIMPLE_JWT.REFRESH_TOKEN_LIFETIME`, `settings.py:245`) sans moyen de le révoquer individuellement — seule la suspension du compte entier le coupe | `frontend/src/api/client.js:5-17`, `frontend/src/auth/AuthContext.jsx:11` | Passer les jetons en cookies `HttpOnly` + `SameSite=Strict` (nécessite CSRF sur les routes API), ou a minima activer `token_blacklist` et une rotation courte des jetons de rafraîchissement |
-| F2 | Moyenne | `Vehicule.immatriculation` unique sur toute la plateforme (pas par compagnie) : une compagnie apprend qu'une plaque existe déjà ailleurs | `reseau/models.py:76` | `UniqueConstraint(fields=["company", "immatriculation"])`, comme cela a déjà été fait pour `Piece.reference` |
+| ~~F2~~ | ~~Moyenne~~ | **Corrigé le 6 octobre 2026.** Avant : `Vehicule.immatriculation` unique sur toute la plateforme, donc une compagnie apprenait qu'une plaque existait ailleurs | `reseau/models.py` | `UniqueConstraint(company, immatriculation)` + contrôle dans `VehiculeSerializer`, tests dans `reseau/tests/test_vehicule.py` |
 | F3 | Faible | Pas de deuxième facteur d'authentification, y compris pour superadmin, PDG, finance, DRH (comptes à fort pouvoir) | `transport_coord/settings.py` (aucune dépendance 2FA dans `requirements.txt`) | 2FA (TOTP) au moins pour superadmin et PDG avant un déploiement multi-compagnies réel |
 | F4 | Faible | Aucune `Content-Security-Policy` : si un XSS apparaissait un jour dans une page (aucun trouvé aujourd'hui), rien n'empêcherait l'exfiltration du jeton `localStorage` | Absent de `settings.py` et de `frontend/index.html` | Ajouter une CSP stricte (`django-csp` ou en-tête posé par le reverse proxy) en filet de sécurité pour F1 |
 | F5 | Faible | Cache par défaut (`LocMemCache`) pour la limitation des connexions : propre à chaque worker, donc la limite réelle est multipliée par le nombre de workers en production | `transport_coord/settings.py:274-279` (déjà documenté dans le commentaire du fichier et dans `DEPLOIEMENT.md`) | Configurer un cache partagé (`DatabaseCache` ou Redis) dès qu'il y a plus d'un worker |
@@ -135,9 +146,8 @@ Ministère.
 
 ## 5. Recommandations, par ordre de valeur
 
-1. **F1** (jetons) et **F2** (immatriculation par compagnie) — les deux corrections les plus proches en coût/valeur
-   de celles déjà faites pour S1–S6 ; F2 est un simple `UniqueConstraint` + migration, sur le modèle de ce qui a déjà
-   été fait pour `Piece.reference`.
+1. **F1** (jetons) — la correction restante la plus proche en coût/valeur de celles déjà faites pour S1–S6 (F2 est faite depuis le
+   6 octobre).
 2. **F5** (cache partagé) avant tout déploiement avec plus d'un worker — sans quoi la limitation des tentatives de
    connexion (§3.1) est affaiblie proportionnellement.
 3. **F6** : relancer les audits de dépendances dès que le réseau le permet, et faire tourner `.github/workflows/ci.yml`

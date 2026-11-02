@@ -6,8 +6,15 @@ import pytest
 from django.utils import timezone
 
 from billetterie.models import Depart, DepartStatut
+from dashboard.ponctualite import bornes_du_jour
 from personnel_roulant.models import FeuilleDeRoute, PositionVehicule
 from personnel_roulant.tests.conftest_suivi import equipe, trajet  # noqa: F401
+
+
+def dans_la_journee(moment):
+    """La couleur d'une gare suit la ponctualité du JOUR : un départ « il y a deux heures » doit rester du jour même juste
+    après minuit, sinon ces essais échouent entre 0 h et 2 h."""
+    return max(moment, bornes_du_jour(timezone.now())[0] + datetime.timedelta(minutes=1))
 
 
 def carte(api_client, utilisateur):
@@ -36,6 +43,9 @@ class TestCarteDuReseau:
 
     def test_la_couleur_d_une_gare_suit_sa_ponctualite_du_jour(self, api_client, equipe, trajet):  # noqa: F811
         # Le trajet de la fixture est parti pile à l'heure : gare de départ verte, gare d'arrivée sans départ mesurable.
+        depart = dans_la_journee(trajet["feuille"].heure_depart_prevue)
+        Depart.objects.filter(pk=trajet["depart"].pk).update(date_heure=depart)
+        FeuilleDeRoute.objects.filter(pk=trajet["feuille"].pk).update(heure_depart_prevue=depart, heure_depart_reelle=depart)
         gares = {g["nom"]: g for g in carte(api_client, equipe["pdg"]).data["gares"]}
 
         assert gares["Adjamé"]["couleur"] == "vert" and gares["Adjamé"]["ponctualite_pourcent"] == 100
@@ -43,7 +53,7 @@ class TestCarteDuReseau:
 
     def test_un_depart_en_retard_fait_passer_la_gare_au_rouge(self, api_client, equipe, trajet):  # noqa: F811
         for minutes in (45, 50, 55):
-            prevue = timezone.now() - datetime.timedelta(hours=2)
+            prevue = dans_la_journee(timezone.now() - datetime.timedelta(hours=2))
             depart = Depart.objects.create(
                 ligne=trajet["ligne"], vehicule=trajet["vehicule"], chauffeur=equipe["conducteur"], company=trajet["ligne"].company,
                 date_heure=prevue, statut=DepartStatut.EN_COURS,

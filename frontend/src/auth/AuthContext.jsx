@@ -1,18 +1,17 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { apiFetch, clearTokens, setTokens } from '../api/client.js'
+import { apiFetch, clearTokens, setTokens, surSessionExpiree } from '../api/client.js'
 
 const AuthContext = createContext(null)
 
+const aUnJeton = () => Boolean(localStorage.getItem('access_token'))
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
+  // Sans jeton, il n'y a rien à charger : l'état est connu d'emblée (pas de `setState` dans l'effet).
+  const [loading, setLoading] = useState(aUnJeton)
 
   useEffect(() => {
-    const access = localStorage.getItem('access_token')
-    if (!access) {
-      setLoading(false)
-      return
-    }
+    if (!aUnJeton()) return
     apiFetch('/auth/me/')
       .then(setUser)
       .catch(() => {
@@ -21,6 +20,10 @@ export function AuthProvider({ children }) {
       })
       .finally(() => setLoading(false))
   }, [])
+
+  // Session finie pour de bon (jeton de renouvellement refusé, compte suspendu) : retour à la connexion, sans attendre un
+  // rechargement de la page.
+  useEffect(() => surSessionExpiree(() => setUser(null)), [])
 
   async function login(username, password) {
     const tokens = await apiFetch('/auth/login/', {

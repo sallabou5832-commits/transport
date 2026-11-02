@@ -52,19 +52,35 @@ ROLES_GESTION_ROULANT = CHAUFFEUR_ROLES | {
 }
 
 
+# Qui lit les feuilles de route, checklists et incidents : ceux dont le travail l'exige, pas toute la compagnie. Les chauffeurs
+# en font partie mais ne voient que les leurs (voir `PersonnelRoulantViewSet.CHAMP_CHAUFFEUR`). Un guichetier, un magasinier ou
+# un agent RH n'ont aucune raison de lire les trajets, checklists de sécurité et incidents des conducteurs.
+ROLES_LECTURE_ROULANT = ROLES_GESTION_ROULANT
+# Le juridique lit en plus les incidents : un accident ouvre son dossier de sinistre (`supports.services`).
+ROLES_LECTURE_INCIDENTS = ROLES_LECTURE_ROULANT | {Role.RESPONSABLE_JURIDIQUE}
+
+
 class IsRoulantManagerOrReadOnly(BasePermission):
-    """Reads are open to any authenticated same-company user.
+    """La lecture est réservée à `ROLES_LECTURE` (les rôles dont le travail touche aux trajets).
 
     Writes are reserved to operational/safety roles (chauffeurs included —
     their access is then narrowed to their own records by the Is Own*
     permission classes above).
     """
 
+    ROLES_LECTURE = ROLES_LECTURE_ROULANT
+
     def has_permission(self, request, view):
-        if request.method in SAFE_METHODS:
-            return True
         user = request.user
-        return bool(user and user.is_authenticated and user.role in ROLES_GESTION_ROULANT)
+        if not (user and user.is_authenticated):
+            return False
+        if request.method in SAFE_METHODS:
+            return user.role in self.ROLES_LECTURE
+        return user.role in ROLES_GESTION_ROULANT
+
+
+class IsIncidentReaderOrManager(IsRoulantManagerOrReadOnly):
+    ROLES_LECTURE = ROLES_LECTURE_INCIDENTS
 
 
 class IsQhseOrReadOnly(BasePermission):

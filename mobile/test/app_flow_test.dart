@@ -88,6 +88,12 @@ void main() {
       // Seule SA feuille est chargée, pas celle du collègue.
       expect(h.server.requestsTo('GET', '/departs/5/'), hasLength(1));
       expect(h.server.requestsTo('GET', '/departs/6/'), isEmpty);
+      // Et le serveur est prié de ne renvoyer que celle-là, pour ce jour (pas toutes celles de la compagnie).
+      final demande = h.server.requestsTo('GET', '/feuilles-de-route/').single.url.queryParameters;
+      final maintenant = DateTime.now();
+      final jour = '${maintenant.year.toString().padLeft(4, '0')}-${maintenant.month.toString().padLeft(2, '0')}-'
+          '${maintenant.day.toString().padLeft(2, '0')}';
+      expect(demande, {'chauffeur': '7', 'date': jour});
     });
 
     appTest('chauffeur relais : même accueil', (tester, h) async {

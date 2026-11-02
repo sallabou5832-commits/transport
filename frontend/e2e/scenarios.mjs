@@ -368,7 +368,7 @@ export const scenarios = [
         await chef.page.waitForURL('**/dashboard/gare')
         await chef.page.reload()
         await attendreCalme(chef.page)
-        await chef.page.getByText("Caisses du jour de l'équipe", { exact: false }).waitFor()
+        await chef.page.getByRole('heading', { name: "Caisses du jour de l'équipe" }).waitFor() // le titre : un paragraphe de l'équipe cite aussi ces mots
         await chef.page.getByText('Clôturée', { exact: true }).first().waitFor({ timeout: 10000 })
         await chef.page.getByRole('button', { name: /^Alertes/ }).click()
         await chef.page.getByText('Caisse clôturée : Rose Kouame', { exact: false }).waitFor({ timeout: 10000 })

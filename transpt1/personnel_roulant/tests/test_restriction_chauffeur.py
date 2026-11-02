@@ -49,6 +49,8 @@ class TestRestrictionChauffeur:
         )
 
         assert response.status_code == 403
+        feuille_a.refresh_from_db()
+        assert feuille_a.heure_arrivee_prevue is None
 
     def test_role_superieur_peut_creer_une_feuille_pour_un_chauffeur(
         self, api_client, chef_ligne_a, chauffeur_a, depart_a
@@ -131,3 +133,5 @@ class TestRestrictionChauffeur:
         response = api_client.patch(f"/api/incidents/{incident.id}/", {"statut": "traite"})
 
         assert response.status_code == 403
+        incident.refresh_from_db()
+        assert incident.statut != "traite"

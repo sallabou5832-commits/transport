@@ -11,6 +11,7 @@ from billetterie.models import Depart, DepartStatut
 from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste
 from core.models import Role
 from gamification.models import MissionAccomplie
+from gamification.moteur import bornes_de_periode
 from gamification.tests.conftest import etat, trajet, vendre
 from reseau.models import Gare, Ligne
 
@@ -30,7 +31,9 @@ class TestClassementDesGares:
         from personnel_roulant.models import FeuilleDeRoute
 
         def depart(ligne, retard, places, heures):
-            prevue = timezone.now() - datetime.timedelta(hours=heures)
+            # Dans le mois en cours même le 1er au petit matin (les classements « du mois » ne regardent pas le mois précédent).
+            maintenant = timezone.now()
+            prevue = max(maintenant - datetime.timedelta(hours=heures), bornes_de_periode("mois", maintenant)[0] + datetime.timedelta(minutes=1))
             d = Depart.objects.create(
                 ligne=ligne, vehicule=monde["vehicule"], chauffeur=agents["chauffeur_principal"], company=company_a,
                 date_heure=prevue, statut=DepartStatut.TERMINE, places_vendues=places,

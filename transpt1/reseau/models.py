@@ -73,7 +73,9 @@ class VehiculeStatut(models.TextChoices):
 
 
 class Vehicule(models.Model):
-    immatriculation = models.CharField(max_length=20, unique=True)
+    # Unique par compagnie, pas sur toute la plateforme : sinon une compagnie apprendrait, par le message d'erreur, qu'une
+    # plaque existe chez une autre.
+    immatriculation = models.CharField(max_length=20)
     capacite = models.PositiveIntegerField()
     statut = models.CharField(
         max_length=20, choices=VehiculeStatut.choices, default=VehiculeStatut.DISPONIBLE
@@ -88,6 +90,9 @@ class Vehicule(models.Model):
 
     class Meta:
         ordering = ["immatriculation"]
+        constraints = [
+            models.UniqueConstraint(fields=["company", "immatriculation"], name="vehicule_immatriculation_unique_par_compagnie"),
+        ]
 
     def __str__(self):
         return self.immatriculation

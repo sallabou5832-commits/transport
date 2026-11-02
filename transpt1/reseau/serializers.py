@@ -68,6 +68,17 @@ class VehiculeSerializer(serializers.ModelSerializer):
         fields = ["id", "immatriculation", "capacite", "statut", "company", "gare", "gare_nom", "kilometrage"]
         read_only_fields = ["company", "gare"]
 
+    def validate_immatriculation(self, valeur):
+        # `company` est en lecture seule : DRF ne génère donc pas le contrôle d'unicité par compagnie (la contrainte de base
+        # le ferait échouer en erreur 500). On ne regarde que la compagnie du demandeur, jamais les autres.
+        company_id = self.instance.company_id if self.instance is not None else self.context["request"].user.company_id
+        doublons = Vehicule.objects.filter(company_id=company_id, immatriculation=valeur)
+        if self.instance is not None:
+            doublons = doublons.exclude(pk=self.instance.pk)
+        if doublons.exists():
+            raise serializers.ValidationError("Un véhicule de votre compagnie porte déjà cette immatriculation.")
+        return valeur
+
 
 class AffectationGareSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)

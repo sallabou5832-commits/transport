@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 from decimal import Decimal, InvalidOperation
@@ -18,7 +19,9 @@ from alertes.models import GraviteAlerte, TypeAlerte
 from alertes.services import alerter, chef_de_gare_du_depart, chefs_de_gare_du_vehicule
 from billetterie.models import DepartStatut
 from colis import services as colis_services
+from dashboard.ponctualite import bornes_du_jour
 from core.mixins import CompanyScopedQuerysetMixin
+from core.dates import lire_date
 from core.models import Role
 from core.permissions import IsSameCompany
 from personnel_roulant.models import (
@@ -35,12 +38,14 @@ from personnel_roulant.models import (
     TypeIncident,
 )
 from personnel_roulant.permissions import (
+    CHAUFFEUR_ROLES,
     CanControler,
     IsOwnChecklist,
     IsOwnFeuilleDeRoute,
     IsOwnIncident,
     IsQhseOrReadOnly,
     IsQhseOuDirecteurExploitation,
+    IsIncidentReaderOrManager,
     IsRoulantManagerOrReadOnly,
     ROLES_SUIVI_TRAJETS,
 )
@@ -73,6 +78,18 @@ def _sans_echec(operation, depart):
 
 
 class PersonnelRoulantViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet):
+    # Chemin ORM vers le chauffeur de l'objet : à la lecture (liste, détail), un chauffeur ne voit que les siens, pas ceux de ses
+    # collègues. Les écritures et les actions (pause, relais, signalement...) gardent leur refus 403 motivé : le masquer en 404
+    # ferait perdre au chauffeur la raison du refus (« vous n'êtes plus le conducteur de ce trajet »).
+    CHAMP_CHAUFFEUR = None
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if self.CHAMP_CHAUFFEUR and user.role in CHAUFFEUR_ROLES and self.action in ("list", "retrieve"):
+            queryset = queryset.filter(**{self.CHAMP_CHAUFFEUR: user.id})
+        return queryset
+
     def perform_create(self, serializer):
         user = self.request.user
         if user.company_id is None:
@@ -81,11 +98,31 @@ class PersonnelRoulantViewSet(CompanyScopedQuerysetMixin, viewsets.ModelViewSet)
 
 
 class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
+    CHAMP_CHAUFFEUR = "chauffeur_id"
     queryset = FeuilleDeRoute.objects.select_related(
-        "depart", "depart__vehicule", "chauffeur", "company"
+        "depart", "depart__ligne", "depart__vehicule", "chauffeur", "company"
     )
     serializer_class = FeuilleDeRouteSerializer
     permission_classes = [IsAuthenticated, IsSameCompany, IsRoulantManagerOrReadOnly, IsOwnFeuilleDeRoute]
+
+    def get_queryset(self):
+        """`?chauffeur=<id>` et `?date=AAAA-MM-JJ` (jour de départ prévu, dans le fuseau de la compagnie) : l'écran d'un
+        chauffeur ne demande que sa feuille du jour au lieu de télécharger celles de toute la compagnie."""
+        queryset = super().get_queryset()
+        if self.action != "list":
+            return queryset
+        params = self.request.query_params
+        if "chauffeur" in params:
+            if not params["chauffeur"].isdigit():
+                raise ValidationError({"chauffeur": "Identifiant entier attendu."})
+            queryset = queryset.filter(chauffeur_id=int(params["chauffeur"]))
+        if "date" in params:
+            jour = lire_date(params["date"])
+            if jour is None:
+                raise ValidationError({"date": "Date attendue au format AAAA-MM-JJ."})
+            debut, fin = bornes_du_jour(timezone.make_aware(datetime.datetime.combine(jour, datetime.time(12))))
+            queryset = queryset.filter(heure_depart_prevue__gte=debut, heure_depart_prevue__lt=fin)
+        return queryset
 
     @action(detail=True, methods=["post"], url_path="demarrer")
     def demarrer(self, request, pk=None):
@@ -230,6 +267,7 @@ class FeuilleDeRouteViewSet(PersonnelRoulantViewSet):
 
 
 class ChecklistDepartViewSet(PersonnelRoulantViewSet):
+    CHAMP_CHAUFFEUR = "feuille_de_route__chauffeur_id"
     queryset = ChecklistDepart.objects.select_related("feuille_de_route", "company")
     serializer_class = ChecklistDepartSerializer
     permission_classes = [IsAuthenticated, IsSameCompany, IsRoulantManagerOrReadOnly, IsOwnChecklist]
@@ -258,9 +296,10 @@ class ChecklistDepartViewSet(PersonnelRoulantViewSet):
 
 
 class IncidentViewSet(PersonnelRoulantViewSet):
+    CHAMP_CHAUFFEUR = "chauffeur_id"
     queryset = Incident.objects.select_related("feuille_de_route", "vehicule", "chauffeur", "company")
     serializer_class = IncidentSerializer
-    permission_classes = [IsAuthenticated, IsSameCompany, IsRoulantManagerOrReadOnly, IsOwnIncident]
+    permission_classes = [IsAuthenticated, IsSameCompany, IsIncidentReaderOrManager, IsOwnIncident]
 
     def perform_create(self, serializer):
         super().perform_create(serializer)

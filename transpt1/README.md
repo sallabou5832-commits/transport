@@ -239,7 +239,7 @@ CRUD complet, isolé par compagnie (`IsSameCompany`) :
 - `../ANALYSE_PROJET.md` : analyse fonctionnelle, sécurité, performance et qualité complète, état du **21 septembre**
   avant le chantier de mise en conformité (chiffres de conformité obsolètes, garder pour le détail méthode/risques).
 - `../RAPPORT_CONFORMITE.md` : les 99 fonctionnalités du cahier des charges, une par une, état **après** le chantier
-  (62 complètes, 19 partielles, 18 absentes) — référence à jour pour le fonctionnel.
+  (62 complètes, 20 partielles, 17 absentes) — référence à jour pour le fonctionnel.
 - `../AUDIT_SECURITE_FONCTIONNEL_2026-09-24.md` : audit sécurité **app par app** du 24 septembre (le plus récent),
   couvrant aussi ce qui n'existait pas encore le 21 septembre (`tutelle`, la commande vocale mobile, les sauvegardes
   automatisées) — référence à jour pour la sécurité.

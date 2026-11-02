@@ -142,6 +142,7 @@ def _resoudre(chemin, monde_a, role=None, tous_les_roles=None):
     """Remplace les `{}` par des valeurs réelles : dates du jour, ou id de la donnée d'exemple."""
     aujourdhui = timezone.localdate().isoformat()
     chemin = chemin.replace("date_debut={}&date_fin={}", f"date_debut={aujourdhui}&date_fin={aujourdhui}")
+    chemin = chemin.replace("chauffeur={}&date={}", f"chauffeur=1&date={aujourdhui}")  # feuille du jour d'un chauffeur
     chemin = chemin.replace("date_heure={}", "date_heure=2030-05-17T08:00")
     chemin = chemin.replace("?{}", "")  # requête construite dynamiquement (ex. les filtres du journal d'audit)
 

@@ -130,8 +130,8 @@ Règles métier de la vente (`POST /tickets/`) :
 
 | Ressource | Lecture | Écriture |
 |---|---|---|
-| **FeuilleDeRoute** / **ChecklistDepart** | Tous les rôles de la compagnie | `chauffeur_principal` / `chauffeur_relais` (uniquement leurs propres feuilles/checklists), `chef_ligne`, `chef_gare`, `directeur_exploitation`, `controleur_ligne`, `qhse`, `secretaire_general`, `pdg` |
-| **Incident** | Tous les rôles de la compagnie | mêmes rôles que ci-dessus (un chauffeur ne déclare/modifie que ses propres incidents) |
+| **FeuilleDeRoute** / **ChecklistDepart** (liste filtrable : `?chauffeur=<id>`, `?date=AAAA-MM-JJ` ; la feuille porte `ligne_nom`, `vehicule` et `vehicule_immatriculation`) | `chef_ligne`, `chef_gare`, `directeur_exploitation`, `controleur_ligne`, `qhse`, `secretaire_general`, `pdg` (et `superadmin`) : tous les trajets de la compagnie. `chauffeur_principal` / `chauffeur_relais` : **uniquement les leurs** (le trajet d'un collègue est introuvable, 404). Les autres postes (guichet, bagages, magasin, atelier, RH, finance, juridique, technique) : 403, leur travail n'y touche pas | `chauffeur_principal` / `chauffeur_relais` (uniquement leurs propres feuilles/checklists), `chef_ligne`, `chef_gare`, `directeur_exploitation`, `controleur_ligne`, `qhse`, `secretaire_general`, `pdg` |
+| **Incident** | mêmes rôles de lecture que ci-dessus **plus** `responsable_juridique` (un accident ouvre son dossier de sinistre) ; un chauffeur ne voit que les siens | mêmes rôles que ci-dessus (un chauffeur ne déclare/modifie que ses propres incidents) |
 | **Incidents graves** (`/incidents/graves/`) | `qhse`, `directeur_exploitation` uniquement | — (lecture seule) |
 
 Règle métier : un défaut de checklist sur un item de sécurité bloque automatiquement le

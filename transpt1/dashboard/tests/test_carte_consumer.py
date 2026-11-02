@@ -104,6 +104,106 @@ class TestAuthentificationEtPermission:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestSessionOuverte:
+    """Une connexion dure bien plus longtemps que le jeton qui l'a ouverte : elle est revérifiée en cours de route."""
+
+    @pytest.fixture(autouse=True)
+    def controle_rapide(self, settings):
+        settings.CARTE_REVALIDATION_SECONDES = 0.05
+
+    @staticmethod
+    def _modifier(utilisateur, **champs):
+        from channels.db import database_sync_to_async
+
+        def appel():
+            type(utilisateur).objects.filter(pk=utilisateur.pk).update(**champs)
+
+        return database_sync_to_async(appel)()
+
+    def test_un_compte_suspendu_pendant_la_connexion_est_coupe(self, equipe):  # noqa: F811
+        async def scenario():
+            communicator, connecte = await _tenter_connexion(_jeton(equipe["qhse"]))
+            assert connecte
+
+            await self._modifier(equipe["qhse"], is_active=False)
+
+            sortie = await communicator.receive_output(timeout=2)
+            assert sortie == {"type": "websocket.close", "code": 4401}
+
+        _executer(scenario)
+
+    def test_un_role_qui_perd_le_droit_de_voir_la_carte_est_coupe(self, equipe):  # noqa: F811
+        async def scenario():
+            communicator, connecte = await _tenter_connexion(_jeton(equipe["qhse"]))
+            assert connecte
+
+            await self._modifier(equipe["qhse"], role=Role.GUICHETIER)
+
+            sortie = await communicator.receive_output(timeout=2)
+            assert sortie["type"] == "websocket.close" and sortie["code"] == 4401
+
+        _executer(scenario)
+
+    def test_un_jeton_expire_pendant_la_connexion_coupe_la_session(self, equipe):  # noqa: F811
+        jeton = AccessToken.for_user(equipe["qhse"])
+        jeton.set_exp(lifetime=datetime.timedelta(seconds=1))
+
+        async def scenario():
+            communicator, connecte = await _tenter_connexion(str(jeton))
+            assert connecte
+
+            sortie = await communicator.receive_output(timeout=4)
+            assert sortie == {"type": "websocket.close", "code": 4401}
+
+        _executer(scenario)
+
+    def test_une_erreur_de_base_pendant_un_controle_ne_coupe_pas_et_n_arrete_pas_la_surveillance(
+        self, equipe, monkeypatch  # noqa: F811
+    ):
+        from dashboard import consumers
+
+        reel = consumers.recharger_utilisateur
+        appels = {"n": 0}
+
+        async def capricieux(identifiant):
+            appels["n"] += 1
+            if appels["n"] == 1:
+                raise RuntimeError("base indisponible")
+            return await reel(identifiant)
+
+        monkeypatch.setattr(consumers, "recharger_utilisateur", capricieux)
+
+        async def scenario():
+            communicator, connecte = await _tenter_connexion(_jeton(equipe["qhse"]))
+            assert connecte
+
+            assert await communicator.receive_nothing(timeout=0.3)  # le premier contrôle a échoué : toujours connecté
+            await self._modifier(equipe["qhse"], is_active=False)
+
+            sortie = await communicator.receive_output(timeout=2)  # les contrôles suivants ont repris et voient la suspension
+            assert sortie == {"type": "websocket.close", "code": 4401}
+            assert appels["n"] >= 2
+
+        _executer(scenario)
+
+    def test_un_compte_toujours_valide_reste_connecte_et_recoit_les_positions(self, equipe, trajet):  # noqa: F811
+        async def scenario():
+            communicator, connecte = await _tenter_connexion(_jeton(equipe["qhse"]))
+            assert connecte
+
+            assert await communicator.receive_nothing(timeout=0.5)  # plusieurs contrôles passés : toujours ouverte
+            reponse = await TestDiffusion._poster(
+                self, equipe["conducteur"], {"latitude": "5.81", "longitude": "-4.51", "vitesse_kmh": 50}
+            )
+            assert reponse.status_code == 201
+            assert json.loads(await communicator.receive_from())["vitesse_kmh"] == 50
+
+            await communicator.disconnect()
+
+        _executer(scenario)
+
+
+@pytest.mark.django_db(transaction=True)
 class TestDiffusion:
     def _poster(self, utilisateur, donnees):
         from channels.db import database_sync_to_async

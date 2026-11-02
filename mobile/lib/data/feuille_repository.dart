@@ -86,7 +86,11 @@ class FeuilleRepository {
 
   Future<FeuilleDuJour?> _fetchToday(AppUser user) async {
     final today = _now();
-    final feuilles = (await api.get('/feuilles-de-route/') as List)
+    // Le serveur ne renvoie que la feuille de ce chauffeur pour ce jour (au lieu de celles de toute la compagnie, sur un
+    // réseau mobile) ; le filtre local qui suit reste un garde-fou.
+    final jour = '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
+    final feuilles = (await api.get('/feuilles-de-route/?chauffeur=${user.id}&date=$jour') as List)
         .cast<Map<String, dynamic>>()
         .where((f) =>
             f['chauffeur'] == user.id &&

@@ -35,12 +35,20 @@ def _check_chauffeur(chauffeur, request):
 class FeuilleDeRouteSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
     chauffeur_nom = serializers.SerializerMethodField()
+    # Ce que le chauffeur affiche sur sa feuille : sans eux, chaque écran devait télécharger les listes complètes des
+    # départs, lignes et véhicules de la compagnie, puis les recouper.
+    ligne_nom = serializers.CharField(source="depart.ligne.nom", read_only=True)
+    vehicule = serializers.IntegerField(source="depart.vehicule_id", read_only=True)
+    vehicule_immatriculation = serializers.CharField(source="depart.vehicule.immatriculation", read_only=True)
 
     class Meta:
         model = FeuilleDeRoute
         fields = [
             "id",
             "depart",
+            "ligne_nom",
+            "vehicule",
+            "vehicule_immatriculation",
             "chauffeur",
             "chauffeur_nom",
             "company",

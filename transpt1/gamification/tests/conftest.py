@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from billetterie.models import Depart, DepartStatut, ModePaiement, Ticket
 from core.models import Role
+from dashboard.ponctualite import bornes_du_jour
 from personnel_roulant.models import FeuilleDeRoute
 from reseau.models import Gare, Ligne, Vehicule, VehiculeStatut
 
@@ -30,9 +31,13 @@ def monde(company_a, agents):
     gare_b = Gare.objects.create(nom="Bouaké", ville="Bouaké", company=company_a)
     ligne = Ligne.objects.create(nom="Adjamé-Bouaké", gare_depart=gare_a, gare_arrivee=gare_b, company=company_a)
     vehicule = Vehicule.objects.create(immatriculation="CI-6100-AA", capacite=20, statut=VehiculeStatut.DISPONIBLE, company=company_a)
+    # Un départ « à venir » mais toujours dans la journée : les classements s'arrêtent à la fin du jour courant, et
+    # « maintenant + 5 h » sortirait de la période (donc du calcul) dès 19 h.
+    maintenant = timezone.now()
+    date_heure = min(maintenant + datetime.timedelta(hours=5), bornes_du_jour(maintenant)[1] - datetime.timedelta(minutes=1))
     depart = Depart.objects.create(
         ligne=ligne, vehicule=vehicule, chauffeur=agents["chauffeur_principal"], company=company_a,
-        date_heure=timezone.now() + datetime.timedelta(hours=5), statut=DepartStatut.PLANIFIE,
+        date_heure=date_heure, statut=DepartStatut.PLANIFIE,
     )
     return {"gare_a": gare_a, "gare_b": gare_b, "ligne": ligne, "vehicule": vehicule, "depart": depart}
 
@@ -49,7 +54,11 @@ def vendre(monde, guichetier, prix="5000", statut="valide", company=None):
 
 def trajet(monde, chauffeur, retard_minutes=0, il_y_a=datetime.timedelta(0), checklist=False, gare=None):
     """Un trajet terminé, parti avec `retard_minutes` de retard, il y a `il_y_a`."""
-    prevue = timezone.now() - il_y_a - datetime.timedelta(hours=3)
+    maintenant = timezone.now()
+    prevue = maintenant - il_y_a - datetime.timedelta(hours=3)
+    if not il_y_a:
+        # Un trajet « du jour » reste dans la journée même juste après minuit (sinon il compterait pour la veille).
+        prevue = max(prevue, bornes_du_jour(maintenant)[0] + datetime.timedelta(minutes=1))
     depart = Depart.objects.create(
         ligne=monde["ligne"], vehicule=monde["vehicule"], chauffeur=chauffeur, company=chauffeur.company,
         date_heure=prevue, statut=DepartStatut.TERMINE, places_vendues=10,

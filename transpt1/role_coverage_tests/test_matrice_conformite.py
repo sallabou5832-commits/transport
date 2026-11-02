@@ -18,8 +18,18 @@ FINANCE = {"directeur_financier", "pdg", "secretaire_general"}
 DIRECTION_RH = {"drh", "pdg", "secretaire_general"}
 COMPAGNIE = {r for r in TOUS_LES_ROLES if r != "superadmin"}
 
+# Trajets, checklists de sécurité et incidents des conducteurs : lus par ceux dont le travail y touche (un chauffeur ne voit que les
+# siens, voir test_chauffeur_ne_voit_que_les_siens). Un guichetier, un magasinier ou un agent RH n'ont aucune raison d'y accéder.
+LECTEURS_TRAJETS = {
+    "superadmin", "pdg", "secretaire_general", "directeur_exploitation", "chef_gare", "chef_ligne", "controleur_ligne", "qhse",
+    "chauffeur_principal", "chauffeur_relais",
+}
+
 # endpoint -> rôles autorisés (tout autre rôle doit recevoir 403)
 RESTREINTS = {
+    "/api/feuilles-de-route/": LECTEURS_TRAJETS,
+    "/api/checklists/": LECTEURS_TRAJETS,
+    "/api/incidents/": LECTEURS_TRAJETS | {"responsable_juridique"},  # un accident ouvre son dossier de sinistre
     "/api/dashboard/direction/": {"pdg", "secretaire_general", "qhse"},
     "/api/dashboard/qhse/": {"qhse"},
     "/api/dashboard/exploitation/": {"directeur_exploitation", "pdg", "secretaire_general"},
@@ -142,9 +152,6 @@ LECTURE_GENERALE = [
     "/api/vehicules/",
     "/api/departs/",
     "/api/tickets/",
-    "/api/feuilles-de-route/",
-    "/api/checklists/",
-    "/api/incidents/",
     "/api/pieces/",
     "/api/pieces/sous-seuil/",
     "/api/ordres-reparation/",

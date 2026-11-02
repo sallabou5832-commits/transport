@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../api/client.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import CarnetDeRoute from '../components/CarnetDeRoute.jsx'
 import SuiviTrajet from '../components/SuiviTrajet.jsx'
-import { LABELS_GRAVITE, LABELS_TYPE_INCIDENT } from '../lib/format.js'
+import { isoAujourdhui, LABELS_GRAVITE, LABELS_TYPE_INCIDENT } from '../lib/format.js'
 
 const ITEMS_CHECKLIST = ['pneus', 'freins', 'carburant', 'eclairage', 'direction', 'ceintures']
 const INCIDENT_VIDE = { type_incident: 'panne', gravite: 'moyenne', description: '' }
@@ -22,20 +22,9 @@ function positionCourante() {
   })
 }
 
-function estAujourdhui(dateIso) {
-  const date = new Date(dateIso)
-  const now = new Date()
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  )
-}
-
 export default function ChauffeurDashboard() {
   const { user } = useAuth()
   const [feuilles, setFeuilles] = useState([])
-  const [lignes, setLignes] = useState({})
   const [error, setError] = useState('')
   const [checklistOuverte, setChecklistOuverte] = useState(null)
   const [etats, setEtats] = useState(() => Object.fromEntries(ITEMS_CHECKLIST.map((i) => [i, 'ok'])))
@@ -48,31 +37,21 @@ export default function ChauffeurDashboard() {
   // Sans cela, « Aucune feuille de route » s'afficherait pendant le chargement et tromperait le chauffeur.
   const [charge, setCharge] = useState(false)
 
-  function chargerFeuilles() {
-    return Promise.all([apiFetch('/feuilles-de-route/'), apiFetch('/departs/'), apiFetch('/lignes/')]).then(
-      ([feuillesData, departsData, lignesData]) => {
-        const lignesParId = Object.fromEntries(lignesData.map((l) => [l.id, l]))
-        const departsParId = Object.fromEntries(departsData.map((d) => [d.id, d]))
-        const mesFeuillesDuJour = feuillesData.filter(
-          (f) => f.chauffeur === user.id && estAujourdhui(f.heure_depart_prevue),
-        )
-        setFeuilles(
-          mesFeuillesDuJour.map((f) => ({
-            ...f,
-            ligneNom: lignesParId[departsParId[f.depart]?.ligne]?.nom,
-            vehicule: departsParId[f.depart]?.vehicule,
-          })),
-        )
-        setLignes(lignesParId)
-      },
-    )
-  }
+  // Le serveur ne renvoie que MA feuille du jour, avec le nom de la ligne et le véhicule : plus de téléchargement des listes
+  // complètes des feuilles, départs et lignes de la compagnie pour n'en garder qu'une.
+  const chargerFeuilles = useCallback(
+    () =>
+      apiFetch(`/feuilles-de-route/?chauffeur=${user.id}&date=${isoAujourdhui()}`).then((feuillesData) =>
+        setFeuilles(feuillesData.map((f) => ({ ...f, ligneNom: f.ligne_nom }))),
+      ),
+    [user.id],
+  )
 
   useEffect(() => {
     chargerFeuilles()
       .catch((err) => setError(err.message))
       .finally(() => setCharge(true))
-  }, [user.id])
+  }, [chargerFeuilles])
 
   async function envoyerChecklist(feuilleId) {
     setMessageChecklist('')

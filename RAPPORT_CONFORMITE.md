@@ -3,7 +3,7 @@
 **Document vérifié** : `cahier.txt` — « Logiciel de coordination gamifié pour compagnie de transport routier » (5 pôles, 18 postes,
 99 fonctionnalités par poste, exigences techniques et transverses).
 **Code vérifié** : ce dépôt — serveur Django (`transpt1/`), site web React (`frontend/`), application mobile Flutter (`mobile/`).
-**Date** : 21 septembre 2026. **Aucun commit n'a été fait** : tous les changements décrits ici sont dans l'arbre de travail.
+**Date** : 21 septembre 2026. Ces changements ont depuis été commités sur la branche `transport` (voir `git log`).
 
 > **Mise à jour (24 septembre 2026).** Relecture demandée après l'audit sécurité du même jour
 > (`AUDIT_SECURITE_FONCTIONNEL_2026-09-24.md`) : les résumés (§1, §6.1) affirmaient à tort que le secrétariat général
@@ -24,7 +24,7 @@
 
 - **Avant** : sur les 99 fonctionnalités, 10 complètes, 30 partielles, 59 absentes (≈ 25 %, une partielle comptant pour moitié).
 - **Maintenant** : **62 complètes, 20 partielles, 17 absentes** (≈ **73 %**). Le détail, ligne par ligne, est au §4.
-- **Tout ce qui a été ajouté est testé** : 2 845 tests du serveur (1 206 au départ), 15 tests du site, et 10 scénarios de bout
+- **Tout ce qui a été ajouté est testé** : 4 374 tests du serveur (1 206 au départ), 42 tests du site, et 14 scénarios de bout
   en bout joués dans un vrai navigateur contre une vraie base (chaque poste se connecte et voit son tableau de bord, blocage
   QHSE, colis, jeu, configuration, caisse, suivi GPS, contrôle des billets, pouvoirs de direction, atelier).
 - **Ce qui manque encore** (§6) : la plupart des fonctions RH, finance et juridique au-delà de l'existant (congés,
@@ -304,11 +304,11 @@ Par ordre de valeur décroissante pour un pilote :
 
 | Vérification | Résultat | Comment la rejouer |
 |---|---|---|
-| Suite du serveur | **2 845 réussis**, 1 ignoré (4 min 44) — 1 206 au départ | `cd transpt1 && python -m pytest` |
+| Suite du serveur | **4 374 réussis**, 1 ignoré (15 min, relevé du 6 octobre 2026) — 1 206 au départ | `cd transpt1 && python -m pytest` |
 | Matrice de conformité et contrat site ↔ API | Inclus ci-dessus (rôles × endpoints, chaque appel des pages) | `pytest role_coverage_tests` |
-| Tests du site | 15 réussis | `cd frontend && npm test` |
-| Analyse statique et compilation du site | 0 erreur ; 4 avertissements **antérieurs** (`ChauffeurDashboard`, `AuthContext`) ; compilation réussie | `npm run lint && npm run build` |
-| Essais de bout en bout (Chrome, base jetable) | **10 scénarios réussis** | `npm run e2e` (≈ 8 min ; `npm run e2e -- atelier` pour un seul) |
+| Tests du site | 42 réussis | `cd frontend && npm test` |
+| Analyse statique et compilation du site | 0 erreur ; 1 avertissement **antérieur** (`AuthContext`, rechargement à chaud en développement seulement) ; compilation réussie | `npm run lint && npm run build` |
+| Essais de bout en bout (Chrome, base jetable) | **14 scénarios réussis** (relevé du 6 octobre 2026 : 12 au premier passage, « colis » au second après un délai dépassé sous charge, « caisse » après correction d'un sélecteur ambigu) | `npm run e2e` (≈ 8 min ; `npm run e2e -- atelier` pour un seul) |
 | Dépendances | `pip-audit` : aucune vulnérabilité connue ; `npm audit` : 0 | `pip-audit -r requirements.txt` ; `npm audit` |
 
 Fichiers à lire ensuite : `transpt1/PERMISSIONS.md` (qui peut quoi), `transpt1/DEPLOIEMENT.md` (tâches planifiées et limites),

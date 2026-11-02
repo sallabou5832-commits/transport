@@ -416,7 +416,7 @@ class Command(BaseCommand):
         facture("Garage Auto Plus", TypeFacture.FOURNISSEUR, "Plaquettes de frein et filtres", 95000, -4, reference="GAP-0418")
         facture("Total Énergies CI", TypeFacture.FOURNISSEUR, "Carburant du mois", 320000, 20)
         reglement = Depense.objects.create(
-            company=company, date=aujourdhui - datetime.timedelta(days=3), categorie=CategorieDepense.FOURNISSEUR,
+            company=company, date=le(3), categorie=CategorieDepense.FOURNISSEUR,
             libelle="Garage Auto Plus — Pneus avant", montant=210000, saisi_par=saisisseur,
         )
         facture(

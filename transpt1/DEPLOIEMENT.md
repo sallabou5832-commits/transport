@@ -44,6 +44,7 @@ un fichier `.env` **lisible par le seul compte du service** (`chmod 600`). Ne co
 | `DJANGO_HSTS_SECONDS` | `2592000` (30 jours) au début ; allonger jusqu'à `31536000` une fois le HTTPS validé. Ne pas mettre 0. |
 | `DJANGO_STATIC_ROOT` | Où `collectstatic` rassemble les fichiers de l'administration (défaut : `staticfiles/` du projet). |
 | `DJANGO_LOG_LEVEL` | `WARNING` par défaut ; `INFO` pour plus de détails. Les erreurs 500 sont écrites sur la sortie d'erreur. |
+| `CARTE_REVALIDATION_SECONDES` | `30` par défaut. Une connexion WebSocket de la carte revérifie à cet intervalle que son compte est actif, a toujours le droit de voir la carte et que son jeton n'a pas expiré ; sinon elle est coupée (code 4401). Un compte suspendu par le PDG perd donc la carte en 30 secondes au plus, sans attendre qu'il ferme son navigateur. |
 | `DJANGO_CHANNEL_LAYER_REDIS_URL` | Carte temps réel (§5) : vide par défaut (une seule instance suffit pour un pilote). Avec plusieurs workers `daphne` ou plusieurs machines, `pip install channels-redis` puis `redis://localhost:6379/0` — sans cela, un navigateur servi par le worker A ne reçoit pas les positions reçues par le worker B. |
 
 **Sauvegardes** — voir §3 : `BACKUP_DIR` (défaut `transpt1/sauvegardes/`, à placer sur un autre disque),
@@ -394,5 +395,7 @@ créent (cloche d'alertes d'un compte de test) et que `cloturer_caisses` a clôt
   agents ni de vraies factures. Ne sont **pas** couverts : le solde de congés (jours acquis et pris), la paie, la signature électronique des
   documents, un échange automatique avec un organisme de formation externe (la formation OSER est suivie par la compagnie elle-même, sans
   lien avec un système extérieur), l'anonymat d'une doléance (elle est nominative, confidentielle).
-- **Listes non paginées** : les listes de l'API (tickets, départs, incidents…) renvoient tout ; à surveiller si une compagnie
-  dépasse quelques milliers de tickets par mois (le journal d'audit, lui, est paginé).
+- **Pagination facultative** : les listes de l'API (tickets, départs, incidents…) renvoient tout tant qu'on ne demande pas de page ;
+  `?limit=50&offset=0` renvoie `{count, next, previous, results}` (500 au plus par demande, `core/pagination.py`). Le site et le mobile ne
+  l'utilisent pas encore, sauf le journal d'audit (paginé d'office) : à surveiller si une compagnie dépasse quelques milliers de tickets
+  par mois. Une feuille de route se demande par `?chauffeur=<id>&date=AAAA-MM-JJ` : l'écran d'un chauffeur n'en télécharge qu'une.
