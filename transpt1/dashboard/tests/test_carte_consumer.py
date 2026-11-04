@@ -132,6 +132,30 @@ class TestSessionOuverte:
 
         _executer(scenario)
 
+    def test_une_session_fermee_pendant_la_connexion_est_coupee(self, equipe):  # noqa: F811
+        """Mot de passe changé ou « déconnecter mes autres appareils » (`core.sessions`) : la carte ouverte est coupée."""
+
+        async def scenario():
+            communicator, connecte = await _tenter_connexion(_jeton(equipe["qhse"]))
+            assert connecte
+
+            await self._modifier(equipe["qhse"], version_session=1)
+
+            sortie = await communicator.receive_output(timeout=2)
+            assert sortie == {"type": "websocket.close", "code": 4401}
+
+        _executer(scenario)
+
+    def test_le_jeton_d_une_session_fermee_n_ouvre_pas_la_carte(self, equipe):  # noqa: F811
+        jeton = _jeton(equipe["qhse"])
+
+        async def scenario():
+            await self._modifier(equipe["qhse"], version_session=1)
+            _, connecte = await _tenter_connexion(jeton)
+            assert not connecte
+
+        _executer(scenario)
+
     def test_un_role_qui_perd_le_droit_de_voir_la_carte_est_coupe(self, equipe):  # noqa: F811
         async def scenario():
             communicator, connecte = await _tenter_connexion(_jeton(equipe["qhse"]))

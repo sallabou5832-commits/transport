@@ -22,6 +22,20 @@ export function getAccessToken() {
   return getTokens().access
 }
 
+/** Le jeton de renouvellement de cet appareil : il identifie la session (changer son mot de passe, fermer les autres sessions). */
+export function getRefreshToken() {
+  return getTokens().refresh
+}
+
+/** Ce que porte un jeton JWT (échéance `exp`, durée de session `duree`...) ; `null` s'il est illisible. */
+export function chargeDuJeton(jeton) {
+  try {
+    return JSON.parse(atob(jeton.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+  } catch {
+    return null
+  }
+}
+
 // Qui doit savoir qu'une session est finie pour de bon (le jeton ne se renouvelle plus) : `AuthContext` s'y abonne pour
 // repasser à l'état « déconnecté » et laisser `ProtectedRoute` renvoyer vers la connexion, au lieu d'afficher des
 // « Erreur 401 » jusqu'au rechargement de la page.
@@ -73,12 +87,8 @@ async function renouveler() {
 
 /** Vrai si le jeton JWT est expiré ou le sera dans `margeSecondes` ; vrai aussi s'il est illisible. */
 export function jetonExpire(jeton, margeSecondes = 10, maintenantMs = Date.now()) {
-  try {
-    const charge = JSON.parse(atob(jeton.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
-    return typeof charge.exp !== 'number' || charge.exp * 1000 <= maintenantMs + margeSecondes * 1000
-  } catch {
-    return true
-  }
+  const charge = chargeDuJeton(jeton)
+  return typeof charge?.exp !== 'number' || charge.exp * 1000 <= maintenantMs + margeSecondes * 1000
 }
 
 /**
@@ -177,6 +187,19 @@ export async function apiTelecharger(path, nomParDefaut = 'export.csv') {
   lien.download = nom
   lien.click()
   URL.revokeObjectURL(url)
+}
+
+/**
+ * Une image servie par l'API (le logo de la compagnie), récupérée avec le jeton d'accès comme tout fichier, et rendue en adresse
+ * locale pour une balise `<img>`. L'appelant libère cette adresse (`URL.revokeObjectURL`) quand l'image n'est plus affichée.
+ */
+export async function apiImage(path) {
+  const response = await envoyer(path)
+  if (!response.ok) {
+    const data = await lireJson(response)
+    throw new ApiError(extractErrorMessage(data) || `Erreur ${response.status}`, response.status, data)
+  }
+  return URL.createObjectURL(await response.blob())
 }
 
 function extractErrorMessage(data) {

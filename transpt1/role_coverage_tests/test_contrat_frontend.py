@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from django.utils import timezone
 
+from configuration.models import ReglementInterieur
 from core.models import Role
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend" / "src"
@@ -60,7 +61,18 @@ RESSOURCES = {
     "pieces-sinistre": "piece_sinistre",
     "modeles-juridiques": "modele",
     "relais": "relais",
+    "gares": "gare_depart",
+    "quais": "quai",
+    "pieces": "piece",
+    "sorties-pieces": "sortie",
+    "cles": "cle_lien",
+    "flux-tutelle": "flux_tutelle",
 }
+
+# Ce qu'un chauffeur ne modifie que si c'est à lui (sa feuille de route, l'incident qu'il a déclaré) : pour vérifier les
+# boutons de son écran, l'objet du monde d'exemple lui est attribué.
+A_SOI = {"feuilles-de-route": "feuille", "incidents": "incident"}
+CHAUFFEURS = {"chauffeur_principal", "chauffeur_relais"}
 
 # Chemins « /postes/{}/ » et « /agents/{}/ » de la configuration : la valeur dépend de celui qui appelle, puisqu'il ne
 # règle que les postes directement sous son autorité. Rôle appelant -> un poste (et son agent) sous cette autorité.
@@ -73,9 +85,16 @@ SOUS_AUTORITE = {
     "chef_atelier": "mecanicien",
 }
 
-# apiFetch ; apiTelecharger (exports et pièces jointes : toujours une lecture) ; apiEnvoyer (envoi d'un fichier : toujours un POST).
-APPEL = re.compile(r"api(?:Fetch|Telecharger|Envoyer)\(\s*(`[^`]*`|'[^']*'|\"[^\"]*\")", re.S)
-DEBUT_APPEL = re.compile(r"api(?:Fetch|Telecharger|Envoyer)\(")
+# apiFetch ; apiTelecharger (exports et pièces jointes) et apiImage (logo) : toujours une lecture ; apiEnvoyer (envoi d'un
+# fichier : toujours un POST).
+APPEL = re.compile(r"api(?:Fetch|Telecharger|Envoyer|Image)\(\s*(`[^`]*`|'[^']*'|\"[^\"]*\")", re.S)
+DEBUT_APPEL = re.compile(r"api(?:Fetch|Telecharger|Envoyer|Image)\(")
+# Images que la page ne demande que si la fiche dit qu'elles existent : absentes des données d'exemple, elles répondent 404 ;
+# un refus (403) reste une faute.
+IMAGES_FACULTATIVES = {"/compagnie/logo/"}
+# Pages qu'un rôle n'utilise que si le règlement intérieur de sa compagnie le lui permet (sinon la page affiche le refus du
+# serveur) : ce rôle est vérifié règle permise.
+REGLES_PERMISES = {("/personnel", "drh"): {"drh_gere_les_comptes": True}}
 METHODE = re.compile(r"method:\s*'(\w+)'")
 
 
@@ -127,7 +146,8 @@ def _appels(nom_page):
         if correspondance.group(0).startswith("apiEnvoyer"):
             appels.append(("POST", chemin))
             continue
-        methode = None if correspondance.group(0).startswith("apiTelecharger") else METHODE.search(DEBUT_APPEL.split(suite)[0])
+        lecture = correspondance.group(0).startswith(("apiTelecharger", "apiImage"))
+        methode = None if lecture else METHODE.search(DEBUT_APPEL.split(suite)[0])
         appels.append((methode.group(1) if methode else "GET", chemin))
     return sorted(set(appels))
 
@@ -155,6 +175,9 @@ def _resoudre(chemin, monde_a, role=None, tous_les_roles=None):
             return f"/{ressource}/{sous_role if ressource == 'postes' else tous_les_roles[sous_role].id}/"
         if ressource not in RESSOURCES:
             pytest.fail(f"Chemin dynamique inconnu : /{ressource}/{{}}/ — ajoutez la ressource à RESSOURCES.")
+        if ressource in A_SOI and role in CHAUFFEURS:
+            objet = monde_a[A_SOI[ressource]]
+            type(objet).objects.filter(pk=objet.pk).update(chauffeur=tous_les_roles[role])
         return f"/{ressource}/{monde_a[RESSOURCES[ressource]].id}/"
 
     return "/api" + re.sub(r"/([a-z-]+)/\{\}/", id_de, chemin)
@@ -180,19 +203,28 @@ class TestCouvertureDesRoles:
 
 
 @pytest.mark.django_db
+def _permettre_les_regles(route, role, utilisateur):
+    if (route, role) in REGLES_PERMISES:
+        ReglementInterieur.objects.update_or_create(
+            company_id=utilisateur.company_id, defaults={"regles": REGLES_PERMISES[(route, role)]}
+        )
+
+
 class TestLecturesDesPages:
     @pytest.mark.parametrize("route,role", COUPLES)
     def test_chaque_lecture_est_autorisee_a_chaque_role_de_la_page(
         self, api_client, tous_les_roles, monde_a, route, role
     ):
         api_client.force_authenticate(user=tous_les_roles[role])
+        _permettre_les_regles(route, role, tous_les_roles[role])
 
         for methode, chemin in _appels(PAGES_PAR_ROUTE[route]):
             if methode != "GET" or chemin.startswith("/auth/"):
                 continue
             url = _resoudre(chemin, monde_a, role, tous_les_roles)
             statut = api_client.get(url).status_code
-            assert statut == 200, f"{route} : {role} reçoit {statut} sur GET {url}"
+            attendus = {200, 404} if chemin in IMAGES_FACULTATIVES else {200}
+            assert statut in attendus, f"{route} : {role} reçoit {statut} sur GET {url}"
 
 
 @pytest.mark.django_db
@@ -202,6 +234,7 @@ class TestActionsDesPages:
         self, api_client, tous_les_roles, monde_a, route, role
     ):
         api_client.force_authenticate(user=tous_les_roles[role])
+        _permettre_les_regles(route, role, tous_les_roles[role])
 
         for methode, chemin in _appels(PAGES_PAR_ROUTE[route]):
             if methode == "GET" or chemin.startswith("/auth/"):

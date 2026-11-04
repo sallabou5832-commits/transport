@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, getAccessToken, jetonExpire, obtenirJetonValide, setTokens, surSessionExpiree } from './client.js'
+import {
+  apiFetch,
+  chargeDuJeton,
+  getAccessToken,
+  jetonExpire,
+  obtenirJetonValide,
+  setTokens,
+  surSessionExpiree,
+} from './client.js'
 
 // Un jeton JWT « de poche » : seul le contenu (payload) compte pour `jetonExpire`, la signature n'est jamais vérifiée côté site.
 function fabriquerJeton(expDansSecondes) {
@@ -40,6 +48,20 @@ describe('jetonExpire', () => {
     expect(jetonExpire('pas-un-jeton')).toBe(true)
     expect(jetonExpire('a.%%%.c')).toBe(true)
     expect(jetonExpire(`a.${btoa('{}')}.c`)).toBe(true) // pas de champ exp
+  })
+})
+
+describe('chargeDuJeton', () => {
+  it('lit ce que porte le jeton (durée de session et échéance)', () => {
+    const base64url = (objet) => btoa(JSON.stringify(objet)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const jeton = `${base64url({ alg: 'HS256' })}.${base64url({ exp: 2000000000, duree: 'semaine', vs: 2 })}.signature`
+    expect(chargeDuJeton(jeton)).toEqual({ exp: 2000000000, duree: 'semaine', vs: 2 })
+  })
+
+  it("rend null pour un jeton illisible plutôt que d'échouer", () => {
+    expect(chargeDuJeton('pas-un-jeton')).toBeNull()
+    expect(chargeDuJeton('')).toBeNull()
+    expect(chargeDuJeton('a.%%%.c')).toBeNull()
   })
 })
 

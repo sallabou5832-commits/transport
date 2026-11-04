@@ -43,7 +43,9 @@ class TestReglerUnPoste:
         )
 
         assert reponse.status_code == 200
-        assert reponse.data["effectif"] == {"niveau_automatisation": "manuel", "niveau_gamification": "sobre"}
+        assert reponse.data["effectif"] == {
+            "niveau_automatisation": "manuel", "niveau_gamification": "sobre", "duree_session_max": "deconnexion"
+        }
         config = ma_configuration(api_client, agents["guichetier"])
         assert config["niveau_automatisation"] == "manuel" and config["niveau_gamification"] == "sobre"
         assert config["prefere_vocal"] is True and config["fonctions_desactivees"] == ["planification_departs"]

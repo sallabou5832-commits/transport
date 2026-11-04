@@ -1,4 +1,4 @@
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -64,6 +64,9 @@ class GenererFluxView(APIView):
     rattraper à la demande, par exemple juste après l'activation de ce module."""
 
     permission_classes = [IsAuthenticated, PeutSuivreLesFluxTutelle]
+
+    def get_serializer(self, *args, **kwargs):  # OPTIONS annonce ainsi le rattrapage au QHSE et au juridique
+        return serializers.Serializer(*args, **kwargs)
 
     def post(self, request):
         crees = generation.generer_tout(request.user.company)

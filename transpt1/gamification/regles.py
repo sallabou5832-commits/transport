@@ -370,8 +370,9 @@ BADGES = [
           _une_fois(lambda a, m: tickets_vendus(a, None, None) >= 100)),
     Badge("caisse_juste", "Caisse juste", "30 tickets vendus en 7 jours sans une seule annulation.",
           frozenset({Role.GUICHETIER}),
-          _une_fois(lambda a, m: tickets_vendus(a, m - datetime.timedelta(days=7), m) >= 30
-                    and tickets_annules(a, m - datetime.timedelta(days=7), m) == 0)),
+          # Fenêtre ouverte vers le présent : un ticket vendu à l'instant même du calcul compte (horloge à paliers).
+          _une_fois(lambda a, m: tickets_vendus(a, m - datetime.timedelta(days=7), None) >= 30
+                    and tickets_annules(a, m - datetime.timedelta(days=7), None) == 0)),
     Badge("routier_regulier", "Routier régulier", "10 trajets sans incident.", frozenset(CHAUFFEURS),
           _une_fois(lambda a, m: trajets_sans_incident(a, None, None) >= 10)),
     Badge("routier_exemplaire", "Routier exemplaire", "100 trajets sans incident.", frozenset(CHAUFFEURS),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../data/ma_configuration.dart';
+import '../services.dart';
 import '../sync/action_handlers.dart';
 import '../sync/sync_service.dart';
 import '../voice/voice_form_session.dart';
@@ -59,6 +61,15 @@ class _ChecklistDepartScreenState extends State<ChecklistDepartScreen> {
   VoiceFormSession? _voiceSession;
   bool _voiceActive = false;
   String? _voiceStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    // Mode vocal préféré (réglé par l'agent ou par son supérieur) : la dictée démarre d'elle-même, « Annuler » la coupe.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && context.read<MaConfiguration>().prefereVocal) _demarrerChecklistVocale();
+    });
+  }
 
   @override
   void dispose() {
@@ -131,7 +142,7 @@ class _ChecklistDepartScreenState extends State<ChecklistDepartScreen> {
   /// côté vente de ticket, et le mode secours qu'il partage avec cet écran.
   Future<void> _demarrerChecklistVocale() async {
     if (_busy || _voiceActive) return;
-    final session = VoiceFormSession();
+    final session = context.read<AppServices>().creerSessionVocale();
     setState(() {
       _voiceActive = true;
       _voiceSession = session;

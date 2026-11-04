@@ -2,13 +2,15 @@
 (`core`/`REST_FRAMEWORK`). Le jeton d'accès est lu dans l'URL (`?token=...`), un navigateur ne pouvant
 pas poser d'en-tête `Authorization` sur une connexion WebSocket (voir `frontend/src/api/useFluxCarte.js`).
 
-Un jeton absent, invalide, expiré, ou dont le compte a été suspendu depuis (`is_active=False`) laisse
+Un jeton absent, invalide, expiré, d'une session fermée depuis (`core.sessions`), ou dont le compte a été suspendu
+depuis (`is_active=False`) laisse
 `scope['user']` anonyme : chaque consommateur refuse alors la connexion lui-même (voir
 `dashboard/consumers.py`), exactement comme une route DRF refuserait un utilisateur non authentifié.
 
 Le jeton n'est lu qu'à l'ouverture, mais la connexion dure bien plus longtemps que lui : `scope['jeton_expire_le']`
-garde son échéance et `recharger_utilisateur` relit le compte, pour que le consommateur coupe la connexion d'un compte
-suspendu ou d'un jeton expiré (voir `CarteConsumer._surveiller`).
+garde son échéance, `scope['version_session']` la version de session du jeton, et `recharger_utilisateur` relit le compte,
+pour que le consommateur coupe la connexion d'un compte suspendu, d'une session fermée ou d'un jeton expiré (voir
+`CarteConsumer._surveiller`).
 """
 
 from urllib.parse import parse_qs
@@ -22,15 +24,22 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 @database_sync_to_async
 def _utilisateur_du_jeton(jeton):
-    """(utilisateur, échéance du jeton en secondes Unix) ; un utilisateur anonyme et `None` si le jeton ne vaut rien."""
+    """(utilisateur, échéance du jeton en secondes Unix, version de session) ; un utilisateur anonyme et `None` si le jeton
+    ne vaut rien."""
     from django.contrib.auth import get_user_model
+
+    from core.sessions import VERSION
 
     utilisateur_model = get_user_model()
     try:
         valide = AccessToken(jeton)
-        return utilisateur_model.objects.get(pk=valide['user_id'], is_active=True), valide['exp']
+        version = valide.get(VERSION, 0)
+        utilisateur = utilisateur_model.objects.get(
+            pk=valide['user_id'], is_active=True, version_session=version, doit_changer_mot_de_passe=False
+        )
+        return utilisateur, valide['exp'], version
     except (TokenError, KeyError, utilisateur_model.DoesNotExist):
-        return AnonymousUser(), None
+        return AnonymousUser(), None, None
 
 
 @database_sync_to_async
@@ -45,5 +54,7 @@ def recharger_utilisateur(identifiant):
 class JWTAuthMiddleware(BaseMiddleware):
     async def __call__(self, scope, receive, send):
         jetons = parse_qs(scope.get('query_string', b'').decode()).get('token')
-        scope['user'], scope['jeton_expire_le'] = await _utilisateur_du_jeton(jetons[0]) if jetons else (AnonymousUser(), None)
+        scope['user'], scope['jeton_expire_le'], scope['version_session'] = (
+            await _utilisateur_du_jeton(jetons[0]) if jetons else (AnonymousUser(), None, None)
+        )
         return await super().__call__(scope, receive, send)

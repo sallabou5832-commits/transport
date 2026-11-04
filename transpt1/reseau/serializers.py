@@ -1,18 +1,29 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from core.models import Role, User
 from core.serializers import CompanySerializer, nom_complet
-from reseau.models import AffectationGare, ChangementLigne, Gare, Ligne, Vehicule
+from core.telephones import valider_telephone
+from reseau.models import ANNEE_CIRCULATION_MIN, AffectationGare, ChangementLigne, Gare, Ligne, Quai, Vehicule
 from reseau.team import ROLES_AFFECTATION_TOUTES_GARES, ROLES_EQUIPE_LOCALE
 
 
 class GareSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
+    chef_nom = serializers.SerializerMethodField()
 
     class Meta:
         model = Gare
-        fields = ["id", "nom", "ville", "company", "chef", "latitude", "longitude"]
+        fields = [
+            "id", "nom", "ville", "company", "chef", "chef_nom", "latitude", "longitude", "adresse", "telephone",
+            "heure_ouverture", "heure_fermeture",
+        ]
         read_only_fields = ["company"]
+        # Un chef ne dirige qu'une gare : vérifié dans `validate_chef`, avec un message qui dit laquelle.
+        extra_kwargs = {"chef": {"validators": []}}
+
+    def get_chef_nom(self, obj):
+        return nom_complet(obj.chef) if obj.chef_id else None
 
     def validate_chef(self, chef):
         if chef is None:
@@ -23,19 +34,56 @@ class GareSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Le chef d'une gare doit avoir le rôle chef_gare.")
         if chef.company_id != target_company_id:
             raise serializers.ValidationError("Le chef doit appartenir à la même compagnie.")
+        autre = Gare.objects.filter(chef=chef).exclude(pk=getattr(self.instance, "pk", None)).first()
+        if autre is not None:
+            raise serializers.ValidationError(f"{nom_complet(chef)} dirige déjà la gare {autre.nom}.")
         return chef
+
+    def validate_telephone(self, valeur):
+        return valider_telephone(valeur)
+
+
+class QuaiSerializer(serializers.ModelSerializer):
+    gare_nom = serializers.CharField(source="gare.nom", read_only=True)
+
+    class Meta:
+        model = Quai
+        fields = ["id", "gare", "gare_nom", "nom", "actif"]
+        validators = []  # l'unicité du nom dans la gare est vérifiée plus bas, avec un message clair
+
+    def validate_gare(self, gare):
+        user = self.context["request"].user
+        if gare.company_id != user.company_id:
+            raise serializers.ValidationError("Cette gare n'appartient pas à votre compagnie.")
+        if user.role == Role.CHEF_GARE and gare.chef_id != user.id:
+            raise serializers.ValidationError("Vous ne gérez que les quais de la gare que vous dirigez.")
+        if self.instance is not None and gare.pk != self.instance.gare_id:
+            raise serializers.ValidationError("Un quai ne change pas de gare : créez-le dans l'autre gare.")
+        return gare
+
+    def validate(self, attrs):
+        gare = attrs.get("gare") or getattr(self.instance, "gare", None)
+        nom = attrs.get("nom", getattr(self.instance, "nom", ""))
+        doublons = Quai.objects.filter(gare=gare, nom__iexact=nom)
+        if self.instance is not None:
+            doublons = doublons.exclude(pk=self.instance.pk)
+        if gare is not None and doublons.exists():
+            raise serializers.ValidationError({"nom": "Cette gare a déjà un quai de ce nom."})
+        return attrs
 
 
 class LigneSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
     # La fermeture ne se modifie pas ici : elle passe par une demande décidée (`/lignes/{id}/changement/`).
     est_fermee = serializers.BooleanField(read_only=True)
+    gare_depart_nom = serializers.CharField(source="gare_depart.nom", read_only=True)
+    gare_arrivee_nom = serializers.CharField(source="gare_arrivee.nom", read_only=True)
 
     class Meta:
         model = Ligne
         fields = [
-            "id", "nom", "gare_depart", "gare_arrivee", "tarif", "company", "statut", "est_fermee", "fermee_jusqu_au",
-            "motif_fermeture",
+            "id", "nom", "gare_depart", "gare_depart_nom", "gare_arrivee", "gare_arrivee_nom", "tarif", "distance_km",
+            "duree_prevue_minutes", "company", "statut", "est_fermee", "fermee_jusqu_au", "motif_fermeture",
         ]
         read_only_fields = ["company", "statut", "fermee_jusqu_au", "motif_fermeture"]
 
@@ -65,8 +113,18 @@ class VehiculeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vehicule
         # La gare d'attache ne se change que par l'arbitrage `reaffecter-gare` (qui prévient les deux gares).
-        fields = ["id", "immatriculation", "capacite", "statut", "company", "gare", "gare_nom", "kilometrage"]
+        fields = [
+            "id", "immatriculation", "capacite", "statut", "company", "gare", "gare_nom", "kilometrage", "marque", "modele",
+            "annee_mise_en_circulation", "classe", "numero_carte_grise", "carte_transport_numero", "carte_transport_echeance",
+        ]
         read_only_fields = ["company", "gare"]
+
+    def validate_annee_mise_en_circulation(self, annee):
+        if annee is not None and not ANNEE_CIRCULATION_MIN <= annee <= timezone.localdate().year + 1:
+            raise serializers.ValidationError(
+                f"Année entre {ANNEE_CIRCULATION_MIN} et {timezone.localdate().year + 1} attendue."
+            )
+        return annee
 
     def validate_immatriculation(self, valeur):
         # `company` est en lecture seule : DRF ne génère donc pas le contrôle d'unicité par compagnie (la contrainte de base

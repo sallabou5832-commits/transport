@@ -11,6 +11,9 @@ from core.models import Role
 URL = "/api/configuration/reglement/"
 TECHNIQUE = {"sorties_pieces_corrigeables", "mecanicien_confie_ses_ordres", "mecanicien_supprime_ses_ordres"}
 EXPLOITATION = {"chauffeur_supprime_ses_feuilles", "chauffeur_supprime_ses_incidents"}
+# Réglées par le PDG seul : la gestion des comptes par le DRH (non permise par défaut : avant elle, seul le PDG intervenait sur
+# les comptes) et la remise en service d'un car bloqué par le QHSE (permise par défaut : comme avant).
+DIRECTION = {"drh_gere_les_comptes", "reparation_leve_le_blocage_qhse"}
 
 
 def lire(api_client, utilisateur):
@@ -30,8 +33,11 @@ class TestLecture:
     def test_sans_reglage_tout_suit_le_defaut_du_socle(self, api_client, agents):
         regles = lire(api_client, agents["guichetier"])
 
-        assert set(regles) == set(REGLEMENT) == TECHNIQUE | EXPLOITATION
-        assert all(regle["permis"] is True and regle["defaut"] is True for regle in regles.values())
+        assert set(regles) == set(REGLEMENT) == TECHNIQUE | EXPLOITATION | DIRECTION
+        assert all(regle["permis"] is True and regle["defaut"] is True for code, regle in regles.items() if code not in DIRECTION)
+        assert regles["drh_gere_les_comptes"]["permis"] is False and regles["drh_gere_les_comptes"]["defaut"] is False
+        assert regles["reparation_leve_le_blocage_qhse"]["permis"] is True
+        assert regles["reparation_leve_le_blocage_qhse"]["defaut"] is True
 
     def test_chaque_regle_dit_a_qui_elle_s_applique_et_quel_pole_la_regle(self, api_client, agents):
         regles = lire(api_client, agents["guichetier"])
@@ -44,7 +50,7 @@ class TestLecture:
     @pytest.mark.parametrize(
         "role,modifiables",
         [
-            ("pdg", TECHNIQUE | EXPLOITATION),
+            ("pdg", TECHNIQUE | EXPLOITATION | DIRECTION),
             ("directeur_technique", TECHNIQUE),
             ("directeur_exploitation", EXPLOITATION),
             ("chef_atelier", set()),
@@ -77,6 +83,8 @@ class TestReglage:
             "mecanicien_supprime_ses_ordres": True,
             "chauffeur_supprime_ses_feuilles": False,
             "chauffeur_supprime_ses_incidents": True,
+            "drh_gere_les_comptes": False,
+            "reparation_leve_le_blocage_qhse": True,
         }
         assert ReglementInterieur.objects.get(company=company_a).modifie_par == agents["pdg"]
 
@@ -164,3 +172,25 @@ class TestReglage:
         regler(api_client, agents["pdg"], sorties_pieces_corrigeables=False)
 
         assert JournalAudit.objects.filter(objet_type="configuration.reglementinterieur", acteur=agents["pdg"]).exists()
+
+
+@pytest.mark.django_db
+class TestCeQueLeReglementPermetAMonPoste:
+    """`/configuration/moi/` dit à chacun ce que le règlement intérieur permet à son poste : les écrans n'affichent que les
+    gestes permis (supprimer sa feuille de route, confier son ordre, corriger une sortie...)."""
+
+    def test_chaque_poste_lit_les_regles_qui_le_visent_et_elles_seules(self, api_client, user_factory, company_a):
+        for role in [r for r in Role if r != Role.SUPERADMIN]:
+            api_client.force_authenticate(user=user_factory(f"moi_{role}", role, company=company_a))
+            attendu = {code for code, regle in REGLEMENT.items() if role in regle.roles}
+
+            assert set(api_client.get("/api/configuration/moi/").data["reglement"]) == attendu, role
+
+    def test_le_reglement_lu_est_celui_de_sa_compagnie(self, api_client, user_factory, company_a, company_b):
+        ReglementInterieur.objects.create(company=company_a, regles={"chauffeur_supprime_ses_feuilles": False})
+        ReglementInterieur.objects.create(company=company_b, regles={"chauffeur_supprime_ses_incidents": False})
+        api_client.force_authenticate(user=user_factory("moi_chauffeur", Role.CHAUFFEUR_PRINCIPAL, company=company_a))
+
+        assert api_client.get("/api/configuration/moi/").data["reglement"] == {
+            "chauffeur_supprime_ses_feuilles": False, "chauffeur_supprime_ses_incidents": True,
+        }

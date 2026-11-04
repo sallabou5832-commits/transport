@@ -111,7 +111,7 @@ export default function CarteReseau() {
                 width="16"
                 height="12"
                 rx="3"
-                fill="#1d4ed8"
+                fill="#f77f00"
                 stroke={car.fatigue ? '#b91c1c' : car.en_direct ? '#ffffff' : '#9ca3af'}
                 strokeWidth="3"
                 strokeDasharray={car.en_direct ? undefined : '3 2'}
@@ -132,7 +132,7 @@ export default function CarteReseau() {
       </svg>
       <p className="muted carte-legende">
         <span style={{ color: COULEURS.vert }}>●</span> gare ≥ 90 % à l’heure · <span style={{ color: COULEURS.orange }}>●</span> ≥ 70 % ·{' '}
-        <span style={{ color: COULEURS.rouge }}>●</span> en dessous · <span style={{ color: '#1d4ed8' }}>■</span> car en route (liseré rouge :
+        <span style={{ color: COULEURS.rouge }}>●</span> en dessous · <span style={{ color: '#f77f00' }}>■</span> car en route (liseré rouge :
         conducteur fatigué, pointillé : position ancienne).
         {sansCoordonnees > 0 && ` ${sansCoordonnees} gare(s) sans coordonnées ne figurent pas sur la carte.`}
       </p>

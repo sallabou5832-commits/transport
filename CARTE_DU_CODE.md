@@ -49,18 +49,21 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 
 | Fichier | Rôle |
 |---|---|
-| `models.py` | `Company` (compagnie), `Role` (18 rôles + superadmin), `User` (rôle + compagnie, suspension de compte). |
+| `models.py` | `Company` (compagnie, avec sa fiche : sigle, coordonnées, mentions légales, logo), `Role` (18 rôles + superadmin), `User` (rôle + compagnie, suspension de compte, téléphone et matricule, mot de passe provisoire à changer, version de session). |
 | `admin.py` | Admin Django du `User` : rôle **obligatoire et sans valeur par défaut** à la création (empêche qu'un compte créé à la hâte devienne superadmin). |
-| `permissions.py` | `IsSameCompany` (isolation multi-compagnie), `IsPdg`. |
+| `permissions.py` | `IsSameCompany` (isolation multi-compagnie), `IsPdg`, `PeutGererLesComptes` (PDG, et DRH selon le règlement intérieur). |
+| `sessions.py` | Accès aux comptes : durée de session choisie à la connexion (« rester connecté ») sous le plafond de la compagnie et du poste, version de session (fermer toutes les sessions d'un compte), connexion et renouvellement des jetons. |
+| `authentification.py` | Authentification JWT qui refuse les sessions fermées et limite un compte au mot de passe provisoire au changement de ce mot de passe. |
 | `mixins.py` | `CompanyScopedQuerysetMixin` : filtre toute liste par la compagnie de l'utilisateur ; pose l'acteur du journal d'audit. |
-| `serializers.py` 🔴 (`comptes.py`) | `serializers.py` : `Company`, `User`, `Compte`. `comptes.py` 🔴 : suspendre/réactiver un compte (motif obligatoire, alerte au DRH et au chef de gare). |
-| `views.py` | `/api/auth/me/`, détail d'une compagnie, liste et suspension des comptes (PDG). |
-| `throttles.py` 🔴 | Limitation des tentatives de connexion (par compte+adresse, et par adresse seule). |
+| `serializers.py` 🔴 (`comptes.py`) | `serializers.py` : `Company`, `User`, `Compte`, création/fiche d'un compte, changement de mot de passe. `comptes.py` 🔴 : créer un compte (mot de passe provisoire, gare, dossier agent), changer de poste, réinitialiser un mot de passe, suspendre/réactiver (motif obligatoire, alertes). |
+| `views.py` | `/api/auth/me/`, renouvellement des jetons, changer son mot de passe, fermer ses autres sessions, détail et fiche de la compagnie, personnel et comptes. |
+| `throttles.py` 🔴 | Limitation des tentatives de connexion (par compte+adresse, et par adresse seule) et des essais de changement de mot de passe. |
 | `fichiers.py` 🔴 | Pièces jointes : type de fichier vérifié par signature binaire, nom aléatoire, jamais de lien public, téléchargement sécurisé. |
 | `sauvegarde.py` | `pg_dump`/`pg_restore` sans shell, empreinte SHA-256, rotation, envoi hors serveur, restauration testée. |
 | `dates.py` 🔴 | Lit une date `AAAA-MM-JJ` (ou date-heure) d'un paramètre ou d'un champ JSON sans lever d'exception sur une entrée invalide, y compris une valeur qui n'est pas un texte. |
 | `entiers.py` 🔴 | `lire_entier` : identifiant venu de l'URL ou du JSON, `None` si invalide ou démesuré (remplace `isdigit()` + `int()`). |
 | `textes.py` | `lire_texte` / `champ_du_corps` : texte d'un corps de requête sans espaces de bord ni caractère nul, sans exception sur un nombre ou une liste. |
+| `telephones.py` | `valider_telephone` : un seul contrôle des numéros saisis (voyageurs, destinataires de colis, gares, service client). |
 | `parsers.py` 🔴 | `AnalyseurJSON` : refuse en 400 un corps JSON qui n'est pas un objet (sauf vue marquée `corps_json_liste`, ex. positions GPS par lot). |
 | `exceptions.py` 🔴 | Gestionnaire d'exceptions de l'API : suppression d'un élément encore utilisé → 409, nombre démesuré ou caractère nul → 400. |
 | `pagination.py` | Pagination facultative (`?limit=` / `?offset=`), maximum 500 par page. |
@@ -68,7 +71,7 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 | `urls.py` | `/api/auth/me/`, `/api/companies/<id>/`, `/api/comptes/`. |
 | `management/commands/seed_demo_users.py` | Crée 2 compagnies et un utilisateur par rôle (mot de passe `Demo!2024`). |
 | `management/commands/sauvegarde_base.py`, `verifier_sauvegarde.py`, `etat_sauvegarde.py` | Sauvegarde, test de restauration réel, vérification d'état (code de sortie pour supervision). |
-| `tests/` (11 fichiers) | Modèles, permissions, authentification JWT, HTTPS, dates invalides, entrées hostiles (entiers, textes, corps JSON, suppressions protégées), pagination, comptes (suspension), sauvegardes, données de démo. |
+| `tests/` (12 fichiers) | Modèles, permissions, authentification JWT, HTTPS, dates invalides, entrées hostiles (entiers, textes, corps JSON, suppressions protégées), pagination, comptes (suspension), sauvegardes, données de démo, fiche et logo de la compagnie (`test_compagnie.py`). |
 
 ### 2.2 `audit/` — journal d'audit et connexions
 
@@ -106,7 +109,7 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 
 | Fichier | Rôle |
 |---|---|
-| `models.py` | `Gare`, `Ligne` (tarif), `Vehicule` (immatriculation **unique plateforme**, gare d'attache), `AffectationGare`, `ChangementLigne`. |
+| `models.py` | `Gare` (coordonnées, horaires), `Quai`, `Ligne` (tarif, distance, durée prévue), `Vehicule` (immatriculation unique **par compagnie**, gare d'attache, fiche : marque, modèle, année, classe, cartes), `AffectationGare`, `ChangementLigne`. |
 | `permissions.py` | Chef de gare limité à sa gare ; rôles de pilotage réseau ; décideurs/demandeurs de fermeture de ligne. |
 | `lignes.py` 🔴 | Fermeture/réouverture de ligne : demande (chef de ligne/gare), décision (directeur exploitation/PDG), réouverture automatique. |
 | `team.py` 🔴 | Équipe locale d'une gare : qui l'affecte (chef de sa gare, ou pilotage pour toute gare). |
@@ -115,7 +118,7 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 | `admin.py` | Admin Django des gares/lignes/véhicules. |
 | `urls.py` | `/api/gares/`, `/api/lignes/`, `/api/vehicules/`, `/api/affectations-gare/`, `/api/changements-ligne/`. |
 | `management/commands/seed_demo_reseau.py` | Gares/lignes/véhicules de démonstration. |
-| `tests/` (6 fichiers, 2 🔴 : `test_affectation_gare.py`, `test_fermeture_ligne.py`) | Permission du chef de gare, gares, lignes, véhicules, affectation d'équipe, fermeture de ligne. |
+| `tests/` (7 fichiers, 2 🔴 : `test_affectation_gare.py`, `test_fermeture_ligne.py`) | Permission du chef de gare, gares, lignes, véhicules, affectation d'équipe, fermeture de ligne, fiches du réseau et quais (`test_fiches_reseau.py`). |
 
 ### 2.5 `personnel_roulant/` — feuilles de route, checklists, incidents, GPS, contrôle
 
@@ -136,15 +139,15 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 
 | Fichier | Rôle |
 |---|---|
-| `models.py` | `Piece` (référence unique **par compagnie**), `OrdreReparation`, `SortiePiece`, `PlanEntretien`, `DemandePiece`. |
+| `models.py` | `Piece` (référence unique **par compagnie** ; prix unitaire, fournisseur, emplacement), `OrdreReparation`, `SortiePiece`, `EntreePiece` (réception), `InventairePiece` (comptage et écart), `PlanEntretien`, `DemandePiece`. |
 | `permissions.py` | Magasinier/chef d'atelier/directeur technique pour le stock ; mécanicien limité à ses propres ordres pour la modification. |
-| `stock.py` 🔴 | Sortie de pièce : décrémente le stock, alerte sous le seuil. |
+| `stock.py` 🔴 | Mouvements du stock : sortie (alerte sous le seuil), réception (coût moyen pondéré), inventaire (écart motivé, manque signalé au directeur technique). |
 | `preventif.py` 🔴 | Entretien préventif : échéance en jours et/ou km, ordre ouvert automatiquement au mécanicien le moins chargé. |
 | `analyses.py` 🔴 | Lecture seule : file des réparations par urgence, charge des mécaniciens, fiche véhicule, suggestions de commande, besoin de renouvellement. |
 | `serializers.py` | Sérialisation pièces/ordres/sorties/plans/demandes. |
 | `views.py` | Stock, ordres de réparation (file, réordonner, prioriser), demandes de pièces, fiche véhicule, charge, renouvellement. |
 | `admin.py` | Admin Django atelier/stock. |
-| `urls.py` | `/api/pieces/`, `/api/ordres-reparation/`, `/api/demandes-pieces/`, `/api/fiche-vehicule/`, `/api/maintenance/...`. |
+| `urls.py` | `/api/pieces/`, `/api/entrees-pieces/`, `/api/inventaires-pieces/`, `/api/ordres-reparation/`, `/api/demandes-pieces/`, `/api/fiche-vehicule/`, `/api/maintenance/...`. |
 | `tests/` (9 fichiers, 6 🔴) | Permissions, sortie de pièce, statut véhicule, analyses techniques, demandes de pièces, file d'attente, préventif, référence de pièce par compagnie, rôle mécanicien. |
 
 ### 2.7 `supports/` — dossiers RH (legacy), assurances, sinistres, juridique
@@ -210,6 +213,8 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 | `test_scenario_pilote.py` | Rejoue par l'API le parcours nominal de `SCENARIO_PILOTE.md`. |
 | `test_tickets_verrouilles.py` | Aucun rôle (superadmin compris, ni admin Django) ne peut modifier/supprimer un ticket vendu. |
 | `test_e2e_comptes.py` 🔴 | Comptes utilisés par les essais de bout en bout du site. |
+| `test_inventaire_boutons.py` | Inventaire des boutons : chaque action d'écriture de l'API est appelée par un écran du site ou du mobile, ou figure dans `EXCLUSIONS` avec son motif (pas de filtre de texte). |
+| `test_guides.py` | Le guide suit le site : chaque fiche cite toutes les pages que `roles.js` ouvre à son poste, et seulement celles-là. |
 
 ### 2.12 Apps ajoutées par le chantier de conformité (🔴 non suivies par git en intégralité)
 
@@ -217,7 +222,7 @@ détaillés un par un : leur rôle est toujours le même, rappelé une fois par 
 |---|---|---|
 | `alertes/` 🔴 | `models.py` (`Alerte`, `LectureAlerte`, `TypeAlerte`), `services.py` (`alerter()` : jamais bloquant), `generation.py` (seuils critiques, départs à risque, échéances — idempotent), `serializers.py`, `views.py`/`urls.py` (`/api/alertes/`, lecture individuelle) | Alertes inter-pôles : cloche sur toutes les pages, génération automatique, blocage de sécurité QHSE. |
 | `colis/` 🔴 | `models.py` (code de retrait haché, `make_password`/`check_password`), `serializers.py`, `services.py` (notifications, plan de chargement), `admin.py` (lecture seule), `views.py`/`urls.py` (`/api/colis/`) | Colis et bagages : enregistrement → chargement → arrivée → retrait par code (5 essais puis verrouillage). |
-| `communication/` 🔴 | `models.py` (`NoteService`, `EvenementAgenda`, `MessageDirect`, `DocumentArchive`), `serializers.py`, `views.py`/`urls.py` (`/api/notes-service/`, `/api/agenda/`, `/api/messages-directs/`, `/api/archives/`) | Secrétariat général : notes de service, agenda de direction, messages directs du chef de gare, archives. |
+| `communication/` 🔴 | `models.py` (`NoteService`, `EvenementAgenda`, `MessageDirect`, `DocumentArchive`), `serializers.py`, `views.py`/`urls.py` (`/api/notes-service/`, `/api/agenda/`, `/api/messages-directs/`, `/api/archives/`, `/api/guides/`), `poles.py` (les cinq pôles et leurs postes), `guides.py` (le guide d'utilisation : une fiche par poste rangée par pôle, gestes dans l'ordre d'une journée, postes avec qui chacun se coordonne ; règlement intérieur et « qui règle ce poste » calculés pour la compagnie du lecteur) | Secrétariat général : notes de service, agenda de direction, messages directs du chef de gare, archives ; guide d'utilisation de chaque poste. |
 | `configuration/` 🔴 | `models.py`, `regles.py` (qui configure qui, valeurs par défaut, règles du règlement intérieur), `services.py` (configuration effective d'un agent, dans le cadre de la compagnie ; `exiger_regle`), `serializers.py`, `views.py`/`urls.py` (`/api/configuration/...`, dont `/reglement/`) | Configuration hiérarchique compagnie → poste → agent (automatisation, gamification), et règlement intérieur de la compagnie (ce qu'elle permet ou non à certains postes), appliqués par le serveur. |
 | `finance/` 🔴 | `models.py` (`Depense`, `BudgetCarburant`, `Fournisseur`, `Facture`, `ConfigurationFinance`), `serializers.py`, `views.py` (export CSV), `urls.py` (`/api/finance/...`) | Dépenses, budget carburant, fournisseurs/factures, export de reporting financier. |
 | `gamification/` 🔴 | `models.py` (`MissionAccomplie`), `moteur.py` (points/niveaux/missions/badges recalculés à chaque fois), `views.py`/`urls.py` (`/api/gamification/moi/`, `/classement/`, `/agents/`) — pas de `serializers.py` (réponses construites en dict par `moteur.py`) | Points, niveaux, missions du jour, badges, classements, réglable par poste via `configuration`. |
@@ -284,8 +289,8 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 |---|---|
 | `auth/AuthContext.jsx` | État de connexion React (utilisateur courant, `login`/`logout`), reprise de session au démarrage. |
 | `auth/ProtectedRoute.jsx` | Redirige vers `/login` si non connecté, vers le tableau de bord du rôle si la page ne lui est pas ouverte (confort d'affichage — le vrai contrôle est côté API). |
-| `auth/roles.js` | Libellés des rôles, table rôle → page, table page → rôles autorisés. |
-| `api/client.js` | Client HTTP : jetons JWT (`localStorage`), renouvellement automatique sur 401, téléchargement de fichier authentifié. |
+| `auth/roles.js` | Libellés des rôles, table rôle → page, table page → rôles autorisés, pages regroupées sous le menu « Paramètres ». |
+| `api/client.js` | Client HTTP : jetons JWT (`localStorage`), renouvellement automatique sur 401, téléchargement de fichier authentifié, image authentifiée (`apiImage`, logo). |
 | `api/useChargement.js` | Hook commun : charge une liste, l'actualise automatiquement à intervalle régulier. |
 | `api/useActions.js` 🔴 | Hook commun : exécute une action (bouton/formulaire), affiche confirmation/erreur, recharge ensuite. |
 
@@ -293,7 +298,7 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 
 | Fichier | Rôle |
 |---|---|
-| `format.js` | Formatage de dates/montants/téléphones à l'affichage. |
+| `format.js` | Formatage de dates/montants/téléphones/durées à l'affichage, état d'une échéance (rappel), horaires d'une gare. |
 | `format.test.js` 🔴 | Tests unitaires de `format.js`. |
 | `ponctualite.js` | **Même règle que le serveur** (`dashboard/ponctualite.py`) pour qu'affichage web et calcul serveur ne divergent jamais. |
 | `ponctualite.test.js` 🔴 | Tests unitaires, rejoués contre les cas de `ponctualite.cas.json`. |
@@ -301,6 +306,7 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 | `finance.js` 🔴 | Libellés/catégories des dépenses, budgets carburant, factures. |
 | `finance.test.js` 🔴 | Tests unitaires de `finance.js`. |
 | `rh.js` 🔴 | Libellés et tons des statuts RH/juridiques (congés, litiges) tels que nommés par le serveur. |
+| `guide.js` / `guide.test.js` | Fiche à ouvrir dans le guide (adresse, sinon celle du lecteur) et tâches regroupées par moment de la journée. |
 
 ### 3.4 `src/components/` — briques réutilisables et blocs métier
 
@@ -318,6 +324,8 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 | `TuilesGares.jsx` | Tuiles par gare du tableau de bord direction. |
 | `SanteGare.jsx` 🔴 | Bloc « santé de la gare » (ponctualité, remplissage, incidents, équipe). |
 | `EquipeGare.jsx` 🔴 | Composition de l'équipe locale (guichetiers, bagagistes) par le chef de gare. |
+| `FicheGare.jsx` | Fiche d'une gare : complète pour la direction (nom, ville, chef, position), réduite pour le chef de gare (adresse, téléphone, horaires). |
+| `QuaisGare.jsx` | Quais d'embarquement d'une gare : déclarer, fermer/rouvrir, retirer. |
 | `MessagesGare.jsx` 🔴 | Message direct du chef de gare à son équipe / aux chauffeurs en approche. |
 | `TensionGares.jsx` 🔴 | « Gares en tension » : départs à venir vs véhicules disponibles rattachés. |
 | `DemandeLigne.jsx` 🔴 / `DemandesLigne.jsx` 🔴 | Demander une fermeture/réouverture de ligne / lister les demandes en cours. |
@@ -352,6 +360,10 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 | `Rentabilite.jsx` 🔴 / `Tresorerie.jsx` 🔴 | Rentabilité par ligne/gare / trésorerie en temps réel. |
 | `SoldeInitial.jsx` 🔴 | Solde d'ouverture de la comptabilité finance. |
 | `CaissesDuJour.jsx` 🔴 | Clôtures de caisse du jour (chef de gare). |
+| `ColisDeLaGare.jsx` | Colis qui partent de la gare ou y arrivent (chef de gare) : renvoyer le code de retrait, annuler un enregistrement, marquer arrivé. |
+| `ImportVentes.jsx` | Import du fichier de ventes du logiciel de billetterie de la compagnie (chef de gare, page Billetterie) et compte rendu ligne à ligne. |
+| `EchangesTutelle.jsx` | Échanges avec la tutelle (QHSE, juridique) : flux envoyés et reçus, « Marquer traité », rattrapage des flux automatiques. |
+| `MesIncidents.jsx` | Incidents déclarés par le chauffeur, supprimables si le règlement intérieur le permet. |
 
 ### 3.5 `src/pages/` — un écran par rôle ou par fonction transverse
 
@@ -383,8 +395,18 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 | `QhseDashboard.jsx` | Checklist sécurité, incidents, blocages, conformité réglementaire. |
 | `SecretariatPage.jsx` 🔴 | Agenda, notes de service, archives (secrétaire général). |
 | `NotesPage.jsx` 🔴 | Notes de service reçues par le poste connecté. |
-| `CadrePage.jsx` 🔴 | Cadre de configuration hiérarchique de la compagnie (automatisation, gamification). |
+| `CadrePage.jsx` 🔴 | Cadre de configuration hiérarchique de la compagnie (automatisation, gamification) et accès aux comptes (session la plus longue, code court exigé, gestion des comptes confiée au DRH). |
 | `ConfigurationPage.jsx` 🔴 | Configuration du poste/agent, dans le cadre fixé par la compagnie. |
+| `MesParametresPage.jsx` | « Mes paramètres » (chacun) : changer son mot de passe (provisoire compris), session de cet appareil, déconnecter ses autres appareils, préférences (mode vocal, son et notification des alertes critiques). |
+| `PersonnelPage.jsx` | « Personnel et comptes » (PDG ; DRH si permis) : créer un compte (mot de passe provisoire montré une fois), fiche, réinitialiser un mot de passe. |
+| `PiecesPage.jsx` | « Pièces et stock » (magasin, atelier, technique) : catalogue et valeur du stock, réceptions, inventaire avec écart, historique d'une pièce. |
+| `ReglementPage.jsx` | « Règlement intérieur » (PDG : toutes les règles ; directeur technique et d'exploitation : celles de leur pôle). |
+| `BilletteriePage.jsx` | « Billetterie » (PDG, directeur d'exploitation) : mode intégré / externe / mixte, clés du logiciel de la compagnie (montrée une fois, révocable), import des ventes. |
+| `GuidePage.jsx` | « Guide » (chacun) : la fiche de chaque poste par pôle — mission, écrans (liens vers ceux que le lecteur peut ouvrir), pas à pas par moment de la journée, « Avec » vers les fiches des postes liés, règlement intérieur de la compagnie ; imprimable. |
+| `CompagniePage.jsx` | « Ma compagnie » (PDG) : identité, coordonnées, mentions légales, logo. |
+| `GaresPage.jsx` | Gares et quais (direction) : créer, renseigner, désigner le chef, déclarer les quais. |
+| `LignesPage.jsx` | Lignes et tarifs : créer une ligne, fixer son tarif, sa distance et sa durée prévue. |
+| `VehiculesPage.jsx` | Parc : ajouter un véhicule, compléter sa fiche ; échéance de la carte de transport rappelée. |
 | `InvestissementsPage.jsx` 🔴 | Demandes et décisions d'investissement. |
 | `AuditPage.jsx` | Journal d'audit filtrable et paginé. |
 | `PlateformeDashboard.jsx` | Vue superadmin toutes compagnies confondues. |
@@ -429,7 +451,8 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 | `api/api_client.dart` | Client HTTP : jeton JWT, renouvellement sur 401, HTTPS obligatoire en release. |
 | `api/api_exception.dart` | Exception typée pour une réponse d'erreur du serveur. |
 | `auth/app_user.dart` | Modèle de l'utilisateur connecté (réponse de `/auth/me/`). |
-| `auth/auth_controller.dart` | Connexion, reprise de session, déconnexion. |
+| `auth/auth_controller.dart` | Connexion (« rester connecté »), reprise de session, déconnexion, changer son mot de passe, fermer ses autres sessions. |
+| `auth/code_court_store.dart` / `code_court_controller.dart` | Code court : empreinte salée dans le coffre du système ; demandé à la reprise et après 5 min en arrière-plan, 5 erreurs = retour au mot de passe, exigible par la compagnie. |
 | `auth/roles.dart` | Constantes des rôles de l'API et leurs libellés. |
 | `auth/token_storage.dart` | Jetons JWT dans le coffre sécurisé du système (`flutter_secure_storage`). |
 | `storage/local_store.dart` | Base locale chiffrée (Hive) : point d'accès du stockage sur l'appareil. |
@@ -445,8 +468,14 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 | `data/loaded.dart` | Enveloppe générique : donnée + provenance (serveur/cache) + date. |
 | `data/depart_repository.dart` / `feuille_repository.dart` | Lecture des départs / feuilles de route (réseau ou cache hors ligne). |
 | `data/quota_service.dart` | Places garanties hors ligne du guichetier (`reserver-hors-ligne`). |
+| `data/ma_configuration.dart` | Ce qui s'applique à l'agent (`/configuration/moi/`) : mode vocal, code court exigé ; gardé pour le mode hors ligne. |
+| `data/guide.dart` | Le guide d'utilisation (`/guides/`) : modèles et lecture, gardé pour le relire hors ligne. |
 | `ui/login_screen.dart` | Écran de connexion (affiche l'adresse du serveur en debug). |
 | `ui/home_screen.dart` | Aiguille vers l'écran d'accueil du rôle connecté. |
+| `ui/code_court_screen.dart` | Saisie du code court : rouvrir l'application, ou le choisir (imposé quand la compagnie l'exige). |
+| `ui/mes_parametres_screen.dart` | Mes paramètres : code court, mode vocal, mot de passe (et l'écran imposé du mot de passe provisoire), session. |
+| `ui/charte.dart` | La charte (orange, blanc, vert ; une couleur par pôle, la même que le site) : thème de l'application et liseré du pôle sur l'accueil. |
+| `ui/guide_screen.dart` | Guide (icône livre de l'accueil) : sa fiche d'abord, pôle et poste au choix, « Avec » vers les postes liés, lisible hors ligne. |
 | `ui/guichetier_home.dart` / `vente_ticket_screen.dart` | Accueil guichetier / écran de vente (avec dictée vocale). |
 | `ui/chauffeur_home.dart` / `checklist_depart_screen.dart` | Accueil chauffeur / checklist avant-départ (avec dictée vocale). |
 | `ui/generic_home.dart` | Écran d'attente pour un rôle sans action mobile dédiée. |

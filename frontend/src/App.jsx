@@ -15,6 +15,16 @@ import FinancesPage from './pages/FinancesPage.jsx'
 import EspacePage from './pages/EspacePage.jsx'
 import ModelesPage from './pages/ModelesPage.jsx'
 import SynthesePage from './pages/SynthesePage.jsx'
+import CompagniePage from './pages/CompagniePage.jsx'
+import MesParametresPage from './pages/MesParametresPage.jsx'
+import PersonnelPage from './pages/PersonnelPage.jsx'
+import PiecesPage from './pages/PiecesPage.jsx'
+import GuidePage from './pages/GuidePage.jsx'
+import ReglementPage from './pages/ReglementPage.jsx'
+import BilletteriePage from './pages/BilletteriePage.jsx'
+import GaresPage from './pages/GaresPage.jsx'
+import LignesPage from './pages/LignesPage.jsx'
+import VehiculesPage from './pages/VehiculesPage.jsx'
 import DirectionDashboard from './pages/DirectionDashboard.jsx'
 import QhseDashboard from './pages/QhseDashboard.jsx'
 import ExploitationDashboard from './pages/ExploitationDashboard.jsx'
@@ -65,6 +75,16 @@ const PAGES = {
   '/modeles': ModelesPage,
   '/synthese': SynthesePage,
   '/notes': NotesPage,
+  '/parametres': MesParametresPage,
+  '/compagnie': CompagniePage,
+  '/personnel': PersonnelPage,
+  '/gares': GaresPage,
+  '/lignes': LignesPage,
+  '/vehicules': VehiculesPage,
+  '/pieces': PiecesPage,
+  '/guide': GuidePage,
+  '/reglement': ReglementPage,
+  '/billetterie': BilletteriePage,
 }
 
 export default function App() {

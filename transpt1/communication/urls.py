@@ -5,6 +5,7 @@ from communication.views import (
     CatalogueCommunicationView,
     DocumentArchiveViewSet,
     EvenementAgendaViewSet,
+    GuidesView,
     MessageDirectViewSet,
     NoteServiceViewSet,
 )
@@ -17,5 +18,6 @@ router.register("archives", DocumentArchiveViewSet, basename="archive")
 
 urlpatterns = [
     path("communication/catalogue/", CatalogueCommunicationView.as_view(), name="communication-catalogue"),
+    path("guides/", GuidesView.as_view(), name="guides"),
     *router.urls,
 ]

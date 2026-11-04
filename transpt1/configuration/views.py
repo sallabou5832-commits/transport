@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
-from rest_framework import viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -10,14 +10,27 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from configuration import regles
-from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste, ReglementInterieur
-from configuration.regles import AisanceNumerique, NiveauAutomatisation, NiveauGamification
+from configuration.models import (
+    ConfigurationAgent,
+    ConfigurationCompagnie,
+    ConfigurationPoste,
+    PreferencePersonnelle,
+    ReglementInterieur,
+)
+from configuration.regles import AisanceNumerique, DureeSession, NiveauAutomatisation, NiveauGamification
 from configuration.serializers import (
     CadreCompagnieSerializer,
     ConfigurationAgentSerializer,
     ConfigurationPosteSerializer,
+    PreferencePersonnelleSerializer,
 )
-from configuration.services import cadre_de, configuration_effective, reglement_de
+from configuration.services import (
+    cadre_de,
+    configuration_effective,
+    politique_session,
+    reglement_de,
+    vocal_impose_pour,
+)
 from core.mixins import ActeurAuditeMixin
 from core.models import Role
 
@@ -38,9 +51,33 @@ class MaConfigurationView(APIView):
                 "role": request.user.role,
                 **configuration_effective(request.user),
                 "cadre": {"automatisation_max": automatisation_max, "gamification_max": gamification_max},
+                # Accès au compte : la plus longue session permise et le code court exigé sur le mobile.
+                "session": politique_session(request.user),
+                # Le supérieur a imposé le mode vocal : l'agent ne le choisit pas dans « Mes paramètres ».
+                "vocal_impose": vocal_impose_pour(request.user),
+                # Ce que le règlement intérieur permet à son poste : les écrans n'affichent que les gestes permis.
+                "reglement": {
+                    code: permis
+                    for code, permis in reglement_de(request.user.company_id).items()
+                    if request.user.role in regles.REGLEMENT[code].roles
+                },
                 "peut_configurer": sorted(role.value for role in _roles_configurables(request.user)),
                 "peut_fixer_le_cadre": request.user.role == Role.PDG,
             }
+        )
+
+
+class MesPreferencesView(RetrieveUpdateAPIView):
+    """Ce que chacun règle pour lui-même : mode vocal (sauf s'il est imposé), son et notification du navigateur pour une
+    alerte critique. Rien de réglé : comme avant."""
+
+    serializer_class = PreferencePersonnelleSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "put", "patch", "head", "options"]
+
+    def get_object(self):
+        return PreferencePersonnelle.objects.filter(agent=self.request.user).first() or PreferencePersonnelle(
+            agent=self.request.user
         )
 
 
@@ -55,6 +92,7 @@ class CatalogueView(APIView):
                 "niveaux_automatisation": [{"valeur": v, "libelle": l} for v, l in NiveauAutomatisation.CHOIX],
                 "niveaux_gamification": [{"valeur": v, "libelle": l} for v, l in NiveauGamification.CHOIX],
                 "aisances": [{"valeur": v, "libelle": l} for v, l in AisanceNumerique.CHOIX],
+                "durees_session": [{"valeur": v, "libelle": l} for v, l in DureeSession.CHOIX],
                 "fonctions": [{"code": code, "libelle": libelle} for code, libelle in regles.FONCTIONS.items()],
             }
         )
@@ -87,19 +125,37 @@ class CadreCompagnieView(ActeurAuditeMixin, RetrieveUpdateAPIView):
         serializer.save(modifie_par=self.request.user, modifie_le=timezone.now())
 
 
+class PeutReglerLeReglement(BasePermission):
+    """Tous lisent le règlement intérieur ; le règlent le PDG et, pour leur pôle, les directeurs (OPTIONS ne leur annonce
+    l'écriture qu'à eux)."""
+
+    message = "Le règlement intérieur se règle par le PDG et, pour leur pôle, par les directeurs."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        return request.method in SAFE_METHODS or any(regles.peut_regler(user, code) for code in regles.REGLEMENT)
+
+
 class ReglementInterieurView(ActeurAuditeMixin, APIView):
     """Le règlement intérieur de la compagnie : ce qu'elle permet ou non à certains postes. Tous le lisent ; le PDG règle
-    toutes les règles, chaque directeur celles de son pôle. `PATCH {code: vrai/faux, ...}` ne touche qu'aux règles données."""
+    toutes les règles, chaque directeur celles de son pôle. `PATCH` (ou `PUT`) `{code: vrai/faux, ...}` ne touche qu'aux
+    règles données."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PeutReglerLeReglement]
+
+    def get_serializer(self, *args, **kwargs):  # OPTIONS annonce ainsi l'écriture à qui peut régler
+        return serializers.Serializer(*args, **kwargs)
 
     def get(self, request):
         return Response(self._donnees(request.user))
 
+    def put(self, request):
+        return self.patch(request)
+
     def patch(self, request):
         user = request.user
-        if not any(regles.peut_regler(user, code) for code in regles.REGLEMENT):
-            raise PermissionDenied("Le règlement intérieur se règle par le PDG et, pour leur pôle, par les directeurs.")
         if not isinstance(request.data, dict) or not request.data:
             raise ValidationError("Indiquez les règles à régler : {code: vrai ou faux}.")
         erreurs = {}
@@ -138,13 +194,20 @@ class ReglementInterieurView(ActeurAuditeMixin, APIView):
         ]
 
 
-def _effectif_du_poste(role, configuration, cadre):
+def _effectif_du_poste(role, configuration, cadre, plafond_session):
     automatisation = (configuration and configuration.niveau_automatisation) or regles.AUTOMATISATION_PAR_DEFAUT
     gamification = (configuration and configuration.niveau_gamification) or regles.gamification_par_defaut(role)
+    duree = (configuration and configuration.duree_session_max) or plafond_session
     return {
         "niveau_automatisation": regles.plafonner(automatisation, cadre[0], NiveauAutomatisation.ORDRE),
         "niveau_gamification": regles.plafonner(gamification, cadre[1], NiveauGamification.ORDRE),
+        "duree_session_max": regles.plafonner(duree, plafond_session, DureeSession.ORDRE),
     }
+
+
+def _plafond_session(company_id):
+    cadre = ConfigurationCompagnie.objects.filter(company_id=company_id).first()
+    return cadre.duree_session_max if cadre is not None else DureeSession.PLAFOND_PAR_DEFAUT
 
 
 class ConfigurationPosteViewSet(ActeurAuditeMixin, viewsets.GenericViewSet):
@@ -166,7 +229,12 @@ class ConfigurationPosteViewSet(ActeurAuditeMixin, viewsets.GenericViewSet):
 
     def _donnees(self, instance):
         donnees = dict(self.get_serializer(instance).data)
-        donnees["effectif"] = _effectif_du_poste(instance.role, instance if instance.pk else None, cadre_de(instance.company_id))
+        donnees["effectif"] = _effectif_du_poste(
+            instance.role,
+            instance if instance.pk else None,
+            cadre_de(instance.company_id),
+            _plafond_session(instance.company_id),
+        )
         return donnees
 
     def get_object(self):

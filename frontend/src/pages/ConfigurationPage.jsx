@@ -3,6 +3,7 @@ import { apiFetch } from '../api/client.js'
 import useChargement from '../api/useChargement.js'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
+import { LABELS_DUREE_SESSION } from '../lib/format.js'
 
 // Un réglage vide laisse le défaut : « socle » pour un poste, « comme son poste » pour un agent.
 function Niveau({ etiquette, valeur, options, vide, onChange }) {
@@ -53,6 +54,15 @@ function Reglage({ titre, sous_titre, initial, catalogue, agent, envoi, onSave }
           vide={videDefaut}
           onChange={(v) => change('niveau_gamification', v)}
         />
+        {!agent && (
+          <Niveau
+            etiquette="Session la plus longue"
+            valeur={valeurs.duree_session_max}
+            options={catalogue.durees_session}
+            vide="Plafond de la compagnie"
+            onChange={(v) => change('duree_session_max', v)}
+          />
+        )}
         {agent && (
           <label>
             Aisance avec le numérique
@@ -83,6 +93,14 @@ function Reglage({ titre, sous_titre, initial, catalogue, agent, envoi, onSave }
             Mode vocal préféré pour ce poste
           </label>
         )}
+        <label className="checkbox-ligne">
+          <input
+            type="checkbox"
+            checked={valeurs.prefere_vocal_impose}
+            onChange={(e) => change('prefere_vocal_impose', e.target.checked)}
+          />
+          Imposer ce mode vocal ({agent ? "l'agent ne le choisit pas lui-même" : 'les agents du poste ne le choisissent pas eux-mêmes'})
+        </label>
       </div>
       <fieldset className="fonctions">
         <legend>Fonctions retirées</legend>
@@ -164,12 +182,14 @@ export default function ConfigurationPage() {
         <Reglage
           key={`${poste.role}-${poste.modifie_le}`}
           titre={poste.role_libelle}
-          sous_titre={`Actuellement : automatisation ${poste.effectif.niveau_automatisation}, gamification ${poste.effectif.niveau_gamification}.`}
+          sous_titre={`Actuellement : automatisation ${poste.effectif.niveau_automatisation}, gamification ${poste.effectif.niveau_gamification}, session ${LABELS_DUREE_SESSION[poste.effectif.duree_session_max]?.toLowerCase()} au plus.`}
           initial={{
             niveau_automatisation: poste.niveau_automatisation,
             niveau_gamification: poste.niveau_gamification,
             prefere_vocal: poste.prefere_vocal,
+            prefere_vocal_impose: poste.prefere_vocal_impose,
             fonctions_desactivees: poste.fonctions_desactivees,
+            duree_session_max: poste.duree_session_max,
           }}
           catalogue={catalogue}
           envoi={envoi}
@@ -197,6 +217,7 @@ export default function ConfigurationPage() {
             niveau_automatisation: agent.niveau_automatisation,
             niveau_gamification: agent.niveau_gamification,
             prefere_vocal: agent.prefere_vocal,
+            prefere_vocal_impose: agent.prefere_vocal_impose,
             fonctions_desactivees: agent.fonctions_desactivees,
             aisance_numerique: agent.aisance_numerique,
           }}

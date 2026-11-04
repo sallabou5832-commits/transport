@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'charte.dart';
+
 /// Affiché à la place de l'application quand sa configuration est invalide
 /// (par ex. adresse de l'API absente ou en HTTP dans une version release).
 class ConfigErrorApp extends StatelessWidget {
@@ -11,7 +13,7 @@ class ConfigErrorApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF0B5FA5), useMaterial3: true),
+      theme: Charte.theme(),
       home: Scaffold(
         body: SafeArea(
           child: Center(

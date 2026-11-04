@@ -4,6 +4,7 @@ import useChargement from '../api/useChargement.js'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
+import EchangesTutelle from '../components/EchangesTutelle.jsx'
 import FormationsObligatoires from '../components/FormationsObligatoires.jsx'
 import Kpi from '../components/Kpi.jsx'
 import TableauConformite from '../components/TableauConformite.jsx'
@@ -310,6 +311,8 @@ export default function QhseDashboard() {
 
       <h2 className="section-title">Formations obligatoires (sécurité routière OSER, permis, visite médicale)</h2>
       <FormationsObligatoires />
+
+      <EchangesTutelle />
     </Layout>
   )
 }

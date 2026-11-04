@@ -7,8 +7,8 @@ from core.models import Company, User
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
-    list_display = ["name", "headquarters_city", "created_at"]
-    search_fields = ["name", "headquarters_city"]
+    list_display = ["name", "sigle", "headquarters_city", "created_at"]
+    search_fields = ["name", "sigle", "headquarters_city"]
 
 
 class CoreUserCreationForm(AdminUserCreationForm):

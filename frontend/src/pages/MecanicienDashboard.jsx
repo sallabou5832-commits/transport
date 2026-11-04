@@ -16,16 +16,20 @@ export default function MecanicienDashboard() {
   const [message, setMessage] = useState({ type: '', texte: '' })
   const [minutes, setMinutes] = useState({})
   const [sortie, setSortie] = useState({ ordre: '', piece: '', quantite: '1' })
+  const [collegues, setCollegues] = useState({})
   const [envoi, setEnvoi] = useState(false)
 
   const { data, error, loading, recharger } = useChargement(
     async () => {
-      const [ordres, vehicules, pieces] = await Promise.all([
+      const [ordres, vehicules, pieces, moi, intervenants] = await Promise.all([
         apiFetch('/ordres-reparation/'),
         apiFetch('/vehicules/'),
         apiFetch('/pieces/'),
+        // Ce que le règlement intérieur permet au mécanicien : confier son ordre à un collègue, le supprimer.
+        apiFetch('/configuration/moi/'),
+        apiFetch('/maintenance/intervenants/'),
       ])
-      return { ordres, vehicules, pieces }
+      return { ordres, vehicules, pieces, reglement: moi.reglement || {}, intervenants }
     },
     { intervalleMs: 60000 },
   )
@@ -60,8 +64,21 @@ export default function MecanicienDashboard() {
           method: 'PATCH',
           body: { statut: 'termine', temps_passe_minutes: Number(minutes[ordre.id]) },
         }),
-      `Intervention #${ordre.id} clôturée : le véhicule est de nouveau disponible pour le régulateur.`,
+      `Intervention #${ordre.id} clôturée : le régulateur est prévenu dès que le véhicule redevient disponible.`,
     )
+  }
+
+  function confier(ordre) {
+    const collegue = data.intervenants.find((i) => i.id === Number(collegues[ordre.id]))
+    return agir(
+      () => apiFetch(`/ordres-reparation/${ordre.id}/`, { method: 'PATCH', body: { mecanicien: collegue.id } }),
+      `Intervention #${ordre.id} confiée à ${collegue.nom} : lui et le chef d'atelier sont prévenus.`,
+    )
+  }
+
+  function supprimer(ordre) {
+    if (!window.confirm(`Supprimer l'ordre de réparation #${ordre.id} (${ordre.description}) ?`)) return
+    agir(() => apiFetch(`/ordres-reparation/${ordre.id}/`, { method: 'DELETE' }), `Ordre de réparation #${ordre.id} supprimé.`)
   }
 
   async function sortirPiece(event) {
@@ -162,6 +179,41 @@ export default function MecanicienDashboard() {
                           Clôturer
                         </button>
                       </div>
+                      {(data.reglement.mecanicien_confie_ses_ordres || data.reglement.mecanicien_supprime_ses_ordres) && (
+                        <div className="toolbar" style={{ margin: '0.4rem 0 0' }}>
+                          {data.reglement.mecanicien_confie_ses_ordres && (
+                            <>
+                              <select
+                                aria-label={`Collègue à qui confier l’intervention ${ordre.id}`}
+                                value={collegues[ordre.id] || ''}
+                                onChange={(e) => setCollegues({ ...collegues, [ordre.id]: e.target.value })}
+                              >
+                                <option value="">— Confier à —</option>
+                                {data.intervenants
+                                  .filter((i) => i.id !== user.id)
+                                  .map((i) => (
+                                    <option key={i.id} value={i.id}>
+                                      {i.nom}
+                                    </option>
+                                  ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="button-secondary button-small"
+                                disabled={envoi || !collegues[ordre.id]}
+                                onClick={() => confier(ordre)}
+                              >
+                                Confier
+                              </button>
+                            </>
+                          )}
+                          {data.reglement.mecanicien_supprime_ses_ordres && (
+                            <button type="button" className="button-secondary button-small" disabled={envoi} onClick={() => supprimer(ordre)}>
+                              Supprimer
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )

@@ -1,25 +1,16 @@
-import re
-
 from django.utils import timezone
 from rest_framework import serializers
 
 from billetterie.models import DepartStatut, StatutTicket
 from colis.models import Colis, TypeColis
 from core.serializers import CompanySerializer, nom_complet
-from notifications.providers import normaliser_numero
-
-TELEPHONE_VALIDE = re.compile(r"^\+?\d{8,15}$")
+from core.telephones import valider_telephone
 
 
 def _telephone(valeur, obligatoire):
-    valeur = (valeur or "").strip()
-    if not valeur:
-        if obligatoire:
-            raise serializers.ValidationError("Ce numéro est obligatoire : c'est par lui que le client est prévenu.")
-        return ""
-    if not TELEPHONE_VALIDE.match(normaliser_numero(valeur)):
-        raise serializers.ValidationError("Numéro de téléphone invalide (8 à 15 chiffres, indicatif possible).")
-    return valeur
+    if obligatoire and not (valeur or "").strip():
+        raise serializers.ValidationError("Ce numéro est obligatoire : c'est par lui que le client est prévenu.")
+    return valider_telephone(valeur)
 
 
 class ColisSerializer(serializers.ModelSerializer):
@@ -29,7 +20,9 @@ class ColisSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
     reference = serializers.CharField(read_only=True)
     depart_libelle = serializers.SerializerMethodField()
+    gare_depart = serializers.IntegerField(source="depart.ligne.gare_depart_id", read_only=True)
     gare_depart_nom = serializers.CharField(source="depart.ligne.gare_depart.nom", read_only=True)
+    depart_statut = serializers.CharField(source="depart.statut", read_only=True)
     gare_arrivee = serializers.IntegerField(source="depart.ligne.gare_arrivee_id", read_only=True)
     gare_arrivee_nom = serializers.CharField(source="depart.ligne.gare_arrivee.nom", read_only=True)
     enregistre_par_nom = serializers.SerializerMethodField()
@@ -45,7 +38,7 @@ class ColisSerializer(serializers.ModelSerializer):
             "mode_paiement": {"required": False},
         }
         fields = [
-            "id", "reference", "company", "depart", "depart_libelle", "gare_depart_nom", "gare_arrivee",
+            "id", "reference", "company", "depart", "depart_libelle", "depart_statut", "gare_depart", "gare_depart_nom", "gare_arrivee",
             "gare_arrivee_nom", "ticket", "type_colis", "description", "poids_kg", "valeur_declaree", "frais",
             "mode_paiement", "expediteur_nom", "expediteur_telephone", "destinataire_nom", "destinataire_telephone",
             "statut", "code_verrouille", "enregistre_par", "enregistre_par_nom", "enregistre_le", "charge_le",

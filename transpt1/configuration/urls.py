@@ -7,6 +7,7 @@ from configuration.views import (
     ConfigurationAgentViewSet,
     ConfigurationPosteViewSet,
     MaConfigurationView,
+    MesPreferencesView,
     ReglementInterieurView,
 )
 
@@ -16,6 +17,7 @@ router.register("configuration/agents", ConfigurationAgentViewSet, basename="con
 
 urlpatterns = [
     path("configuration/moi/", MaConfigurationView.as_view(), name="configuration-moi"),
+    path("configuration/mes-preferences/", MesPreferencesView.as_view(), name="configuration-mes-preferences"),
     path("configuration/catalogue/", CatalogueView.as_view(), name="configuration-catalogue"),
     path("configuration/compagnie/", CadreCompagnieView.as_view(), name="configuration-compagnie"),
     path("configuration/reglement/", ReglementInterieurView.as_view(), name="configuration-reglement"),

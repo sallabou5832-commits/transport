@@ -37,7 +37,8 @@ def file_attente(company):
     )
     return sorted(
         ordres,
-        key=lambda o: (RANG_URGENCE[o.urgence], 0 if o.position else 1, o.position, o.date_creation),
+        # À ancienneté égale (deux ordres ouverts dans le même instant), le premier enregistré passe d'abord.
+        key=lambda o: (RANG_URGENCE[o.urgence], 0 if o.position else 1, o.position, o.date_creation, o.pk),
     )
 
 

@@ -42,6 +42,19 @@ class ThrottleConnexionCompte(_ThrottleConnexion):
         return f"{adresse}:{hashlib.sha256(nom.encode()).hexdigest()[:32]}"
 
 
+class ThrottleMotDePasse(SimpleRateThrottle):
+    """Changer son mot de passe demande l'actuel : sans limite, une session laissée ouverte permettrait de l'essayer à
+    volonté. Compté par compte, au débit de `CONNEXION_LIMITE_COMPTE`."""
+
+    scope = "mot_de_passe"
+
+    def get_rate(self):
+        return settings.CONNEXION_LIMITE_COMPTE
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": request.user.pk}
+
+
 class ThrottleConnexionAdresse(_ThrottleConnexion):
     scope = "connexion_adresse"
     reglage = "CONNEXION_LIMITE_ADRESSE"

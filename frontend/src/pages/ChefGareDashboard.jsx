@@ -7,9 +7,13 @@ import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
 import Jauge from '../components/Jauge.jsx'
 import CaissesDuJour from '../components/CaissesDuJour.jsx'
+import ColisDeLaGare from '../components/ColisDeLaGare.jsx'
 import DemandeLigne from '../components/DemandeLigne.jsx'
 import EquipeGare from '../components/EquipeGare.jsx'
+import FicheGare from '../components/FicheGare.jsx'
+import ImportVentes from '../components/ImportVentes.jsx'
 import MessagesGare from '../components/MessagesGare.jsx'
+import QuaisGare from '../components/QuaisGare.jsx'
 import SanteGare from '../components/SanteGare.jsx'
 import { formatDateHeure, formatFCFA, indexParId } from '../lib/format.js'
 
@@ -82,6 +86,10 @@ export default function ChefGareDashboard() {
       <EquipeGare gare={gare} />
 
       <MessagesGare />
+
+      <ColisDeLaGare gare={gare} />
+
+      <ImportVentes />
 
       <h2 className="section-title">Départs de la gare</h2>
 
@@ -203,6 +211,13 @@ export default function ChefGareDashboard() {
 
       <h2 className="section-title">Fermer ou rouvrir une ligne</h2>
       <DemandeLigne />
+
+      <h2 className="section-title">Fiche de la gare</h2>
+      <section className="card">
+        <p className="muted">Adresse, téléphone et horaires de votre gare, et ses quais d&apos;embarquement.</p>
+        <FicheGare key={gare.id} gare={gare} onEnregistre={recharger} />
+        <QuaisGare gare={gare} />
+      </section>
     </Layout>
   )
 }

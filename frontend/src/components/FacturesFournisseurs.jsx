@@ -67,6 +67,11 @@ export default function FacturesFournisseurs({ onChange }) {
     agir(() => apiFetch(`/factures/${f.id}/payer/`, { method: 'POST', body: { mode_paiement: mode } }), `Facture « ${f.libelle} » payée : la dépense est enregistrée.`)
   const annuler = (f) => agir(() => apiFetch(`/factures/${f.id}/annuler/`, { method: 'POST', body: {} }), `Facture « ${f.libelle} » annulée.`)
   const supprimer = (f) => agir(() => apiFetch(`/factures/${f.id}/`, { method: 'DELETE' }), `Facture « ${f.libelle} » supprimée.`)
+  function retirerFournisseur(f) {
+    // Un fournisseur qui a des factures se garde (le serveur refuse et dit pourquoi).
+    if (!window.confirm(`Retirer « ${f.nom} » de la liste des fournisseurs ?`)) return
+    agir(() => apiFetch(`/fournisseurs/${f.id}/`, { method: 'DELETE' }), `Fournisseur « ${f.nom} » retiré.`)
+  }
 
   const champFacture = (nom) => ({ value: facture[nom], onChange: (e) => setFacture({ ...facture, [nom]: e.target.value }) })
   const champFournisseur = (nom) => ({ value: fournisseur[nom], onChange: (e) => setFournisseur({ ...fournisseur, [nom]: e.target.value }) })
@@ -238,6 +243,34 @@ export default function FacturesFournisseurs({ onChange }) {
           </button>
         </div>
       </form>
+      {data.fournisseurs.length > 0 && (
+        <div className="table-wrap no-print">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Fournisseur</th>
+                <th>Activité</th>
+                <th>Téléphone</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {data.fournisseurs.map((f) => (
+                <tr key={f.id}>
+                  <td>{f.nom}</td>
+                  <td>{f.categorie || '—'}</td>
+                  <td>{f.telephone || '—'}</td>
+                  <td>
+                    <button type="button" className="button-secondary button-small" disabled={envoi} onClick={() => retirerFournisseur(f)}>
+                      Retirer
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   )
 }

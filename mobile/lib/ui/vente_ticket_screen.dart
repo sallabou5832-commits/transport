@@ -5,6 +5,7 @@ import '../api/api_exception.dart';
 import '../auth/auth_controller.dart';
 import '../data/depart_repository.dart';
 import '../data/loaded.dart';
+import '../data/ma_configuration.dart';
 import '../data/quota_service.dart';
 import '../services.dart';
 import '../sync/action_handlers.dart';
@@ -45,6 +46,8 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
   VoiceFormSession? _voiceSession;
   bool _voiceActive = false;
   String? _voiceStatus;
+  // Mode vocal préféré : la dictée démarre d'elle-même au premier départ choisi (une fois : ensuite, le bouton).
+  bool _dicteeLancee = false;
 
   @override
   void initState() {
@@ -139,6 +142,14 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
     }
   }
 
+  void _choisirDepart(int? depart) {
+    setState(() => _departId = depart);
+    if (depart != null && !_dicteeLancee && context.read<MaConfiguration>().prefereVocal) {
+      _dicteeLancee = true;
+      _demarrerVenteVocale();
+    }
+  }
+
   /// Remplit le formulaire par la voix (nom, téléphone, prix, mode de paiement), lit un
   /// récapitulatif, puis valide comme le ferait le bouton tactile — seulement si
   /// l'utilisateur dit « confirmer ». Le départ doit déjà être choisi (au clavier) : la
@@ -149,7 +160,7 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
   /// bloquer l'utilisateur (les champs déjà compris restent remplis, à corriger au besoin).
   Future<void> _demarrerVenteVocale() async {
     if (_busy || _voiceActive || _departId == null) return;
-    final session = VoiceFormSession();
+    final session = context.read<AppServices>().creerSessionVocale();
     setState(() {
       _voiceActive = true;
       _voiceSession = session;
@@ -290,7 +301,7 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
                               ),
                             ),
                         ],
-                        onChanged: _busy ? null : (value) => setState(() => _departId = value),
+                        onChanged: _busy ? null : _choisirDepart,
                         validator: (v) => v == null ? 'Choisissez un départ.' : null,
                       ),
                       if (_departId != null)

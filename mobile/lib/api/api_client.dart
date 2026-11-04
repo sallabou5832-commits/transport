@@ -38,6 +38,8 @@ class ApiClient {
 
   Future<Object?> delete(String path) => _request('DELETE', path);
 
+  Future<Object?> patch(String path, {Object? body}) => _request('PATCH', path, body: body);
+
   Future<Object?> post(
     String path, {
     Object? body,
@@ -91,6 +93,11 @@ class ApiClient {
       final Future<http.Response> call = switch (method) {
         'GET' => _http.get(uri, headers: allHeaders),
         'POST' => _http.post(
+            uri,
+            headers: allHeaders,
+            body: body == null ? null : jsonEncode(body),
+          ),
+        'PATCH' => _http.patch(
             uri,
             headers: allHeaders,
             body: body == null ? null : jsonEncode(body),

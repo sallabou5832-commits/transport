@@ -2,11 +2,26 @@ from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from core.fichiers import CheminDeStockage
+
 
 class Company(models.Model):
     name = models.CharField(max_length=255)
     headquarters_city = models.CharField(max_length=255)
     created_at = models.DateField(verbose_name="date de création")
+    # Identité, coordonnées et mentions légales (écran « Ma compagnie », tenu par le PDG), à reprendre sur les billets, reçus,
+    # manifestes et exports. Toutes facultatives : une compagnie qui n'a rien saisi fonctionne comme avant.
+    sigle = models.CharField(max_length=20, blank=True)
+    adresse = models.CharField(max_length=255, blank=True)
+    telephone = models.CharField("téléphone du service client", max_length=30, blank=True)
+    email = models.EmailField(blank=True)
+    rccm = models.CharField("RCCM", max_length=60, blank=True)
+    compte_contribuable = models.CharField(max_length=30, blank=True)
+    # Autorisation d'exercer l'activité de transport (décret n° 2015-269) : l'échéance est montrée, jamais imposée.
+    autorisation_numero = models.CharField(max_length=60, blank=True)
+    autorisation_echeance = models.DateField(null=True, blank=True)
+    # Servi seulement par l'API (`/compagnie/logo/`), jamais par un lien public, comme toute pièce jointe.
+    logo = models.FileField(upload_to=CheminDeStockage("logos"), null=True, blank=True)
 
     class Meta:
         verbose_name = "compagnie"
@@ -55,6 +70,15 @@ class User(AbstractUser):
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     motif_suspension = models.CharField(max_length=255, blank=True)
+    # Version des sessions du compte, portée par chaque jeton (`core.sessions`) : l'augmenter ferme d'un coup toutes les
+    # sessions ouvertes (mot de passe changé, « déconnecter mes autres appareils »).
+    version_session = models.PositiveIntegerField(default=0, editable=False)
+    # Fiche du compte, tenue par le PDG ou le DRH (écran « Personnel et comptes ») ; toutes facultatives.
+    telephone = models.CharField(max_length=30, blank=True)
+    matricule = models.CharField(max_length=30, blank=True)
+    # Mot de passe provisoire (compte créé ou mot de passe réinitialisé) : tant qu'il n'est pas changé, le compte ne fait rien
+    # d'autre que le changer (voir `core.authentification`).
+    doit_changer_mot_de_passe = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -64,7 +88,10 @@ class User(AbstractUser):
                     | (~models.Q(role=Role.SUPERADMIN) & models.Q(company__isnull=False))
                 ),
                 name="user_company_required_unless_superadmin",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["company", "matricule"], condition=~models.Q(matricule=""), name="matricule_unique_par_compagnie"
+            ),
         ]
 
     def clean(self):

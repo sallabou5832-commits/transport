@@ -224,6 +224,28 @@ générée au premier lancement, est gardée dans le coffre du système (Keystor
 les données deviennent illisibles : elles sont effacées et l'application **prévient l'utilisateur** que des
 ventes en attente ont pu être perdues.
 
+### Accès au compte : rester connecté, code court, mot de passe
+
+- **Rester connecté** (case de l'écran de connexion) : 7 jours, 30 jours ou jusqu'à la déconnexion, sous le plafond fixé
+  par la compagnie ; décochée, la session dure 1 jour comme avant.
+- **Code court** (Mes paramètres, icône ⚙ de l'accueil) : 4 à 6 chiffres, demandé à la reprise d'une session et après
+  5 minutes en arrière-plan ; vérifié sur le téléphone seulement (empreinte salée dans le coffre du système, jamais le code
+  lui-même), il marche hors ligne. 5 erreurs : le code est effacé et le mot de passe redemandé. Facultatif, sauf si la
+  compagnie l'exige (il est alors demandé juste après la connexion). Il appartient à un compte : un autre agent qui se
+  connecte sur le téléphone l'efface.
+- **Mot de passe** : se change dans Mes paramètres (les autres appareils sont déconnectés). Un mot de passe **provisoire**
+  (compte créé ou réinitialisé par le PDG ou le DRH) doit être remplacé avant d'accéder à l'accueil.
+- **Mode vocal** : préféré (par l'agent dans Mes paramètres, ou imposé par son supérieur), la dictée démarre d'elle-même
+  dans la vente de ticket (au choix du départ) et la checklist avant-départ.
+
+### Guide d'utilisation
+
+L'icône livre de l'accueil ouvre le **guide** (`/api/guides/`, le même que la page « Guide » du site) : la fiche du poste de
+l'agent d'abord, puis celle de n'importe quel poste au choix du pôle. Chaque fiche donne la mission, les écrans (ordinateur ou
+téléphone), les gestes pas à pas rangés par moment de la journée, les postes avec qui chacun se coordonne (« Avec », qui ouvre
+leur fiche) et ce que le règlement intérieur de la compagnie permet au poste. Lu une fois, le guide est gardé sur le téléphone et
+se relit hors ligne (le règlement cité est alors celui du jour de la lecture).
+
 ### Ajouter une action hors ligne
 
 1. Déclarer son type dans `lib/sync/action_handlers.dart` (`ActionTypes`) et l'associer à son appel API

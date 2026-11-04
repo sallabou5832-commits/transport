@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext.jsx'
 import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import CarnetDeRoute from '../components/CarnetDeRoute.jsx'
+import MesIncidents from '../components/MesIncidents.jsx'
 import SuiviTrajet from '../components/SuiviTrajet.jsx'
 import { isoAujourdhui, LABELS_GRAVITE, LABELS_TYPE_INCIDENT } from '../lib/format.js'
 
@@ -36,6 +37,9 @@ export default function ChauffeurDashboard() {
   const [messageIncident, setMessageIncident] = useState({ type: '', texte: '' })
   // Sans cela, « Aucune feuille de route » s'afficherait pendant le chargement et tromperait le chauffeur.
   const [charge, setCharge] = useState(false)
+  // Ce que le règlement intérieur de la compagnie permet au chauffeur (supprimer sa feuille de route, un incident déclaré).
+  const [reglement, setReglement] = useState({})
+  const [signalements, setSignalements] = useState(0)
 
   // Le serveur ne renvoie que MA feuille du jour, avec le nom de la ligne et le véhicule : plus de téléchargement des listes
   // complètes des feuilles, départs et lignes de la compagnie pour n'en garder qu'une.
@@ -51,7 +55,21 @@ export default function ChauffeurDashboard() {
     chargerFeuilles()
       .catch((err) => setError(err.message))
       .finally(() => setCharge(true))
+    apiFetch('/configuration/moi/')
+      .then((moi) => setReglement(moi.reglement || {}))
+      .catch(() => {}) // sans réponse, les gestes soumis au règlement restent cachés
   }, [chargerFeuilles])
+
+  async function supprimerFeuille(feuille) {
+    if (!window.confirm('Supprimer cette feuille de route ? Le départ reste planifié, sans feuille de route.')) return
+    setMessageDemarrage((prev) => ({ ...prev, [feuille.id]: '' }))
+    try {
+      await apiFetch(`/feuilles-de-route/${feuille.id}/`, { method: 'DELETE' })
+      await chargerFeuilles()
+    } catch (err) {
+      setMessageDemarrage((prev) => ({ ...prev, [feuille.id]: `error:${err.message}` }))
+    }
+  }
 
   async function envoyerChecklist(feuilleId) {
     setMessageChecklist('')
@@ -95,6 +113,7 @@ export default function ChauffeurDashboard() {
       })
       setIncident(INCIDENT_VIDE)
       setIncidentOuvert(null)
+      setSignalements((n) => n + 1)
     } catch (err) {
       setMessageIncident({ type: 'error', texte: err.message })
     }
@@ -175,6 +194,11 @@ export default function ChauffeurDashboard() {
               >
                 Signaler un incident
               </button>
+              {reglement.chauffeur_supprime_ses_feuilles && !feuille.heure_depart_reelle && (
+                <button type="button" className="button-secondary" onClick={() => supprimerFeuille(feuille)}>
+                  Supprimer cette feuille de route
+                </button>
+              )}
             </div>
             {typeMsg && <Alert type={typeMsg === 'success' ? 'success' : 'error'}>{texteMsg}</Alert>}
 
@@ -255,6 +279,8 @@ export default function ChauffeurDashboard() {
         {messageChecklist}
       </Alert>
       <Alert type={messageIncident.type || 'error'}>{messageIncident.texte}</Alert>
+
+      <MesIncidents peutSupprimer={Boolean(reglement.chauffeur_supprime_ses_incidents)} cle={signalements} />
 
       <h2 className="section-title">Papiers du véhicule et carnet de route</h2>
       <CarnetDeRoute />

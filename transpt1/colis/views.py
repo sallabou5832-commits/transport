@@ -59,6 +59,13 @@ class ColisViewSet(
             queryset = queryset.filter(depart_id=depart) if depart is not None else queryset.none()
         if parametres.get("statut"):
             queryset = queryset.filter(statut__in=parametres["statut"].split(","))
+        if parametres.get("gare"):  # ce qui part de cette gare ou y arrive (l'écran du chef de gare)
+            gare = lire_entier(parametres["gare"])
+            queryset = (
+                queryset.filter(Q(depart__ligne__gare_depart=gare) | Q(depart__ligne__gare_arrivee=gare))
+                if gare is not None
+                else queryset.none()
+            )
         return queryset
 
     # --- enregistrement ---------------------------------------------------------------------------------------

@@ -9,18 +9,30 @@ from billetterie.permissions import DISPATCH_ROLES
 from core.dates import lire_date
 from core.entiers import lire_entier
 from core.mixins import CompanyScopedQuerysetMixin
+from core.models import Role
 from core.permissions import IsSameCompany
 from core.serializers import nom_complet
 from reseau import lignes as service_lignes
-from reseau.models import AffectationGare, ChangementLigne, Gare, Ligne, StatutChangementLigne, Vehicule, VehiculeStatut
+from reseau.models import (
+    AffectationGare,
+    ChangementLigne,
+    Gare,
+    Ligne,
+    Quai,
+    StatutChangementLigne,
+    Vehicule,
+    VehiculeStatut,
+)
 from reseau.permissions import (
     CanManageAffectation,
     CanManageOwnGare,
+    CanManageOwnGareQuai,
     IsGareManagerOrReadOnly,
     IsLigneManagerOrReadOnly,
     IsVehiculeManagerOrReadOnly,
     PeutArbitrer,
     PeutChangerLigne,
+    PeutDesignerLesChefsDeGare,
     PeutVoirLesChangements,
 )
 from reseau.serializers import (
@@ -28,6 +40,7 @@ from reseau.serializers import (
     ChangementLigneSerializer,
     GareSerializer,
     LigneSerializer,
+    QuaiSerializer,
     VehiculeSerializer,
 )
 from reseau.team import ROLES_AFFECTATION, ROLES_EQUIPE_LOCALE
@@ -49,6 +62,45 @@ class GareViewSet(CompanyOwnedViewSet):
     queryset = Gare.objects.select_related("company", "chef")
     serializer_class = GareSerializer
     permission_classes = [IsAuthenticated, IsSameCompany, IsGareManagerOrReadOnly, CanManageOwnGare]
+
+    @action(
+        detail=False, methods=["get"], url_path="chefs-possibles", permission_classes=[IsAuthenticated, PeutDesignerLesChefsDeGare]
+    )
+    def chefs_possibles(self, request):
+        """Les chefs de gare de la compagnie, avec la gare que chacun dirige déjà : de quoi désigner le chef d'une gare."""
+        chefs = (
+            get_user_model()
+            .objects.filter(company_id=request.user.company_id, role=Role.CHEF_GARE, is_active=True)
+            .select_related("gare_dirigee")
+            .order_by("username")
+        )
+        return Response(
+            [
+                {
+                    "id": chef.id,
+                    "nom": nom_complet(chef),
+                    "gare": (
+                        {"id": chef.gare_dirigee.id, "nom": chef.gare_dirigee.nom} if hasattr(chef, "gare_dirigee") else None
+                    ),
+                }
+                for chef in chefs
+            ]
+        )
+
+
+class QuaiViewSet(CompanyOwnedViewSet):
+    """Les quais d'embarquement des gares (`?gare=<id>`). Le chef de gare tient ceux de sa gare ; la direction, ceux de toutes."""
+
+    queryset = Quai.objects.select_related("gare")
+    serializer_class = QuaiSerializer
+    permission_classes = [IsAuthenticated, IsSameCompany, IsGareManagerOrReadOnly, CanManageOwnGareQuai]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        gare = lire_entier(self.request.query_params.get("gare"))
+        if gare is not None:
+            queryset = queryset.filter(gare_id=gare)
+        return queryset
 
 
 class LigneViewSet(CompanyOwnedViewSet):

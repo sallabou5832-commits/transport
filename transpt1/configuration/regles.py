@@ -5,6 +5,7 @@ subordonné [...] dans le cadre fixé par la compagnie ». Le socle est livré c
 démarrer.
 """
 
+from datetime import timedelta
 from typing import NamedTuple
 
 from core.models import Role
@@ -36,6 +37,27 @@ class AisanceNumerique:
     MOYENNE = "moyenne"
     ELEVEE = "elevee"
     CHOIX = [(FAIBLE, "Peu à l'aise"), (MOYENNE, "À l'aise"), (ELEVEE, "Très à l'aise")]
+
+
+class DureeSession:
+    """Combien de temps une session reste ouverte sans redemander le mot de passe (« rester connecté »). Chacun choisit à la
+    connexion, sans dépasser le plafond de la compagnie, que le PDG peut abaisser et qu'un supérieur peut réduire pour un
+    poste (un guichet partagé, par exemple). Sans choix, 1 jour : le comportement d'avant."""
+
+    JOUR = "jour"
+    SEMAINE = "semaine"
+    MOIS = "mois"
+    DECONNEXION = "deconnexion"  # jusqu'à ce que l'agent se déconnecte (un an au plus, techniquement)
+    ORDRE = (JOUR, SEMAINE, MOIS, DECONNEXION)
+    CHOIX = [(JOUR, "1 jour"), (SEMAINE, "7 jours"), (MOIS, "30 jours"), (DECONNEXION, "Jusqu'à la déconnexion")]
+    DUREES = {
+        JOUR: timedelta(days=1),
+        SEMAINE: timedelta(days=7),
+        MOIS: timedelta(days=30),
+        DECONNEXION: timedelta(days=365),
+    }
+    PAR_DEFAUT = JOUR
+    PLAFOND_PAR_DEFAUT = DECONNEXION
 
 
 # Qui configure qui : les rôles directement subordonnés à chaque échelon. Le PDG, qui fixe le cadre de la compagnie,
@@ -123,6 +145,20 @@ REGLEMENT = {
         roles=_CHAUFFEURS,
         pole=Role.DIRECTEUR_EXPLOITATION,
         defaut=True,
+    ),
+    "drh_gere_les_comptes": RegleInterne(
+        libelle="Le DRH crée les comptes du personnel, les modifie et réinitialise leur mot de passe",
+        refus="Le règlement intérieur de la compagnie réserve la gestion des comptes au PDG.",
+        roles=frozenset({Role.DRH}),
+        pole=Role.PDG,
+        defaut=False,  # comme avant : seul le PDG intervenait sur les comptes ; le PDG peut confier ce pouvoir au DRH
+    ),
+    "reparation_leve_le_blocage_qhse": RegleInterne(
+        libelle="La réparation terminée remet en service un car bloqué par le QHSE (sinon il attend la levée du QHSE)",
+        refus="Le règlement intérieur de la compagnie exige la levée du QHSE : le car reste bloqué jusqu'à ce qu'il la prononce.",
+        roles=frozenset({Role.CHEF_ATELIER, Role.MECANICIEN, Role.DIRECTEUR_TECHNIQUE}),
+        pole=Role.PDG,
+        defaut=True,  # comme avant : clôturer la réparation rend le car disponible
     ),
     "chauffeur_supprime_ses_incidents": RegleInterne(
         libelle="Le chauffeur supprime un incident qu'il a déclaré",

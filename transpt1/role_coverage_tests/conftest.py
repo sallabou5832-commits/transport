@@ -12,7 +12,8 @@ from core.models import Role
 from django.core.files.base import ContentFile
 from finance.models import BudgetCarburant, Depense, Facture, Fournisseur
 from investissements.models import Investissement
-from maintenance.models import DemandePiece, OrdreReparation, Piece, PlanEntretien, StatutOrdreReparation
+from lien_billetterie.models import CleLienBilletterie
+from maintenance.models import DemandePiece, OrdreReparation, Piece, PlanEntretien, SortiePiece, StatutOrdreReparation
 from personnel_roulant.models import (
     BlocageSecurite,
     ControleLigne,
@@ -22,7 +23,7 @@ from personnel_roulant.models import (
     StatutIncident,
     TypeIncident,
 )
-from reseau.models import AffectationGare, ChangementLigne, Gare, Ligne, Vehicule, VehiculeStatut
+from reseau.models import AffectationGare, ChangementLigne, Gare, Ligne, Quai, Vehicule, VehiculeStatut
 from rh.models import (
     Candidature,
     ContratAgent,
@@ -35,6 +36,7 @@ from rh.models import (
 )
 from personnel_roulant.models import Relais
 from supports.models import Assurance, DossierAgent, ModeleJuridique, PieceSinistre, Sinistre
+from tutelle.models import DirectionFlux, FluxTutelle, StatutFlux, TypeFlux
 
 PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"
 
@@ -53,6 +55,7 @@ def _construire_monde(company, user_factory, suffixe):
 
     gare_depart = Gare.objects.create(nom=f"Gare Depart {suffixe}", ville="Abidjan", company=company)
     gare_arrivee = Gare.objects.create(nom=f"Gare Arrivee {suffixe}", ville="Bouaké", company=company)
+    quai = Quai.objects.create(gare=gare_depart, company=company, nom="Quai 1")
     ligne = Ligne.objects.create(
         nom=f"Ligne {suffixe}", gare_depart=gare_depart, gare_arrivee=gare_arrivee, company=company
     )
@@ -111,6 +114,12 @@ def _construire_monde(company, user_factory, suffixe):
     affectation = AffectationGare.objects.create(agent=guichetier, gare=gare_depart, company=company)
     plan_entretien = PlanEntretien.objects.create(
         vehicule=vehicule, company=company, libelle="Vidange", periodicite_jours=180, derniere_date=timezone.localdate()
+    )
+    sortie = SortiePiece.objects.create(ordre_reparation=ordre, piece=piece, company=company, quantite=1)
+    cle_lien, _ = CleLienBilletterie.creer(company=company, logiciel=f"Logiciel {suffixe}", par=agent)
+    flux_tutelle = FluxTutelle.objects.create(
+        company=company, type=TypeFlux.CONFORMITE, direction=DirectionFlux.VERS_COMPAGNIE, statut=StatutFlux.RECU,
+        contenu={"norme": "Extincteur obligatoire"},
     )
     demande_piece = DemandePiece.objects.create(
         ordre_reparation=ordre, piece=piece, company=company, quantite=1, demandeur=mecanicien, disponible_a_la_demande=True
@@ -178,11 +187,15 @@ def _construire_monde(company, user_factory, suffixe):
         "affectation": affectation,
         "plan_entretien": plan_entretien,
         "demande_piece": demande_piece,
+        "sortie": sortie,
+        "cle_lien": cle_lien,
+        "flux_tutelle": flux_tutelle,
         "investissement": investissement,
         "compte": guichetier,
         "colis": colis,
         "controle": controle,
         "gare_depart": gare_depart,
+        "quai": quai,
         "gare_arrivee": gare_arrivee,
         "ligne": ligne,
         "vehicule": vehicule,

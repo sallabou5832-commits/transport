@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils import timezone
 
-from configuration.regles import AisanceNumerique, NiveauAutomatisation, NiveauGamification
+from configuration.regles import AisanceNumerique, DureeSession, NiveauAutomatisation, NiveauGamification
 from core.models import Company, Role, User
 
 
@@ -15,6 +15,11 @@ class ConfigurationCompagnie(models.Model):
     gamification_max = models.CharField(
         max_length=10, choices=NiveauGamification.CHOIX, default=NiveauGamification.COMPLET
     )
+    # Accès aux comptes : la plus longue session permise (« rester connecté ») et le code court exigé sur le mobile.
+    duree_session_max = models.CharField(
+        max_length=12, choices=DureeSession.CHOIX, default=DureeSession.PLAFOND_PAR_DEFAUT
+    )
+    code_court_exige = models.BooleanField(default=False)
     modifie_par = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     modifie_le = models.DateTimeField(default=timezone.now)
 
@@ -56,6 +61,10 @@ class ConfigurationPoste(models.Model):
     # Codes de `regles.FONCTIONS` retirés à ce poste.
     fonctions_desactivees = models.JSONField(default=list, blank=True)
     prefere_vocal = models.BooleanField(default=False)
+    # Faux : chaque agent du poste peut choisir lui-même son mode vocal (« Mes paramètres ») ; vrai : ce réglage s'impose.
+    prefere_vocal_impose = models.BooleanField(default=False)
+    # Durée de session réduite pour ce poste (jamais au-delà du plafond de la compagnie) ; vide : le plafond de la compagnie.
+    duree_session_max = models.CharField(max_length=12, choices=DureeSession.CHOIX, null=True, blank=True)
     modifie_par = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     modifie_le = models.DateTimeField(default=timezone.now)
 
@@ -80,6 +89,7 @@ class ConfigurationAgent(models.Model):
     niveau_gamification = models.CharField(max_length=10, choices=NiveauGamification.CHOIX, null=True, blank=True)
     fonctions_desactivees = models.JSONField(default=list, blank=True)
     prefere_vocal = models.BooleanField(null=True, blank=True)
+    prefere_vocal_impose = models.BooleanField(default=False)  # voir `ConfigurationPoste.prefere_vocal_impose`
     aisance_numerique = models.CharField(
         max_length=10, choices=AisanceNumerique.CHOIX, default=AisanceNumerique.MOYENNE
     )
@@ -92,3 +102,21 @@ class ConfigurationAgent(models.Model):
 
     def __str__(self):
         return f"Configuration de {self.agent}"
+
+
+class PreferencePersonnelle(models.Model):
+    """Ce que l'agent règle lui-même (« Mes paramètres ») : son mode vocal, sauf si son supérieur l'a imposé, et la façon
+    d'être prévenu d'une alerte critique sur le site (son, notification du navigateur). Rien de réglé : comme avant."""
+
+    agent = models.OneToOneField(User, on_delete=models.CASCADE, related_name="preference_personnelle")
+    prefere_vocal = models.BooleanField(null=True, blank=True)  # vide : comme réglé par son supérieur
+    son_alertes = models.BooleanField(default=False)
+    notifications_navigateur = models.BooleanField(default=False)
+    modifie_le = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "préférences personnelles"
+        verbose_name_plural = "préférences personnelles"
+
+    def __str__(self):
+        return f"Préférences de {self.agent}"

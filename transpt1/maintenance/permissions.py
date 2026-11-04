@@ -35,6 +35,17 @@ class CanManagePiece(BasePermission):
         return bool(user and user.is_authenticated and user.role in ROLES_SORTIE_PIECE)
 
 
+class PeutRecevoirEtInventorier(BasePermission):
+    """Réceptions et inventaires des pièces : tous les lisent ; le magasinier, le chef d'atelier et le directeur technique les
+    enregistrent (les mêmes que pour les sorties ; le mécanicien, lui, ne fait que sortir les pièces de ses ordres)."""
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        user = request.user
+        return bool(user and user.is_authenticated and user.role in ROLES_SORTIE_PIECE)
+
+
 ROLES_CREATION_ORDRE_REPARATION = {
     Role.CHEF_ATELIER,
     Role.DIRECTEUR_TECHNIQUE,
@@ -90,6 +101,12 @@ class PeutPiloterLAtelier(_RolesDeLaCompagnie):
     le chef d'atelier."""
 
     ROLES = {Role.DIRECTEUR_TECHNIQUE, Role.CHEF_ATELIER}
+
+
+class PeutVoirLesIntervenants(_RolesDeLaCompagnie):
+    """La liste des intervenants de l'atelier, pour confier un ordre à un collègue : l'atelier et le directeur technique."""
+
+    ROLES = {Role.DIRECTEUR_TECHNIQUE, Role.CHEF_ATELIER, Role.MECANICIEN}
 
 
 class PeutGererLesPlans(BasePermission):

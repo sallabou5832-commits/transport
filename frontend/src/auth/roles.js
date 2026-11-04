@@ -42,6 +42,30 @@ export const ROLE_LABELS = {
   superadmin: 'Super administrateur',
 }
 
+// Le pôle de chaque poste (le même rangement que le serveur, communication/poles.py) : il donne sa couleur à l'interface.
+// L'opérateur de la plateforme, hors des compagnies, a la sienne.
+export const POLE_DU_ROLE = {
+  pdg: 'direction',
+  secretaire_general: 'direction',
+  qhse: 'direction',
+  directeur_exploitation: 'exploitation',
+  chef_gare: 'exploitation',
+  chef_ligne: 'exploitation',
+  guichetier: 'exploitation',
+  bagagiste: 'exploitation',
+  chauffeur_principal: 'roulant',
+  chauffeur_relais: 'roulant',
+  controleur_ligne: 'roulant',
+  directeur_technique: 'technique',
+  magasinier: 'technique',
+  chef_atelier: 'technique',
+  mecanicien: 'technique',
+  drh: 'supports',
+  directeur_financier: 'supports',
+  responsable_juridique: 'supports',
+  superadmin: 'plateforme',
+}
+
 // Un tableau de bord par poste. Les rôles de chaque page sont aussi ceux que
 // role_coverage_tests/test_contrat_frontend.py confronte aux permissions de l'API.
 export const DASHBOARD_ROLES = {
@@ -100,7 +124,38 @@ export const PAGES_ANNEXES = {
     'chauffeur_principal', 'chauffeur_relais', 'controleur_ligne', 'directeur_technique', 'magasinier', 'chef_atelier',
     'mecanicien', 'drh', 'directeur_financier', 'responsable_juridique',
   ],
+  // Mes paramètres : son mot de passe et sa session, pour chacun (l'opérateur de la plateforme compris).
+  '/parametres': [
+    'pdg', 'secretaire_general', 'qhse', 'directeur_exploitation', 'chef_gare', 'chef_ligne', 'guichetier', 'bagagiste',
+    'chauffeur_principal', 'chauffeur_relais', 'controleur_ligne', 'directeur_technique', 'magasinier', 'chef_atelier',
+    'mecanicien', 'drh', 'directeur_financier', 'responsable_juridique', 'superadmin',
+  ],
+  // Le guide d'utilisation : la fiche de chaque poste, rangée par pôle. Chacun lit celle de tous les postes.
+  '/guide': [
+    'pdg', 'secretaire_general', 'qhse', 'directeur_exploitation', 'chef_gare', 'chef_ligne', 'guichetier', 'bagagiste',
+    'chauffeur_principal', 'chauffeur_relais', 'controleur_ligne', 'directeur_technique', 'magasinier', 'chef_atelier',
+    'mecanicien', 'drh', 'directeur_financier', 'responsable_juridique', 'superadmin',
+  ],
+  // Paramètres de la compagnie, tenus sans l'administration Django. Chaque page ne s'ouvre qu'aux postes qui peuvent y écrire
+  // (le chef de gare tient la fiche de sa gare depuis son tableau de bord).
+  '/compagnie': ['pdg'],
+  // Le DRH ne gère les comptes que si le règlement intérieur le lui permet (sinon la page affiche le refus du serveur).
+  '/personnel': ['pdg', 'drh'],
+  '/gares': ['pdg', 'secretaire_general', 'directeur_exploitation'],
+  '/lignes': ['pdg', 'secretaire_general', 'directeur_exploitation', 'chef_ligne'],
+  '/vehicules': ['pdg', 'secretaire_general', 'directeur_exploitation', 'directeur_technique', 'chef_atelier'],
+  // Catalogue, réceptions et inventaire : ceux qui enregistrent les mouvements du stock.
+  '/pieces': ['magasinier', 'chef_atelier', 'directeur_technique'],
+  // Le règlement intérieur : le PDG règle toutes les règles, chaque directeur celles de son pôle.
+  '/reglement': ['pdg', 'directeur_technique', 'directeur_exploitation'],
+  // Le lien avec le logiciel de billetterie de la compagnie : mode, clés, import (le chef de gare importe depuis son tableau de bord).
+  '/billetterie': ['pdg', 'directeur_exploitation'],
 }
+
+// Les pages annexes regroupées sous le menu « Paramètres » de la barre du haut (les autres restent des liens directs).
+export const PAGES_PARAMETRES = [
+  '/parametres', '/compagnie', '/personnel', '/reglement', '/billetterie', '/gares', '/lignes', '/vehicules', '/pieces',
+]
 
 export const LIBELLES_PAGES_ANNEXES = {
   '/audit': "Journal d'audit",
@@ -115,6 +170,16 @@ export const LIBELLES_PAGES_ANNEXES = {
   '/modeles': 'Modèles juridiques',
   '/synthese': 'Synthèse RH et juridique',
   '/notes': 'Notes de service',
+  '/parametres': 'Mes paramètres',
+  '/guide': 'Guide',
+  '/compagnie': 'Ma compagnie',
+  '/personnel': 'Personnel et comptes',
+  '/gares': 'Gares et quais',
+  '/lignes': 'Lignes et tarifs',
+  '/vehicules': 'Véhicules',
+  '/pieces': 'Pièces et stock',
+  '/reglement': 'Règlement intérieur',
+  '/billetterie': 'Billetterie',
 }
 
 // Repli pour un rôle inconnu du frontend (ex. rôle ajouté côté serveur) : la page générique

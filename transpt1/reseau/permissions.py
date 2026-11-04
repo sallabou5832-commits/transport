@@ -21,6 +21,16 @@ class CanManageOwnGare(BasePermission):
         return obj.chef_id == user.id
 
 
+class CanManageOwnGareQuai(BasePermission):
+    """Le chef de gare ne modifie (ni ne supprime) que les quais de la gare qu'il dirige ; la lecture et les autres rôles ne
+    sont pas concernés (comme `CanManageOwnGare`)."""
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in SAFE_METHODS or request.user.role != Role.CHEF_GARE:
+            return True
+        return obj.gare.chef_id == request.user.id
+
+
 class _IsNetworkManagerOrReadOnly(BasePermission):
     """Reads are open to any authenticated same-company user; only the
     roles listed in `ROLES` may create, update or delete.
@@ -90,6 +100,12 @@ class PeutVoirLesChangements(_RolesDeLaCompagnie):
     """Voir les demandes de fermeture : ceux qui les font (les leurs) et ceux qui les décident (toutes)."""
 
     ROLES = DECIDEURS | DEMANDEURS
+
+
+class PeutDesignerLesChefsDeGare(_RolesDeLaCompagnie):
+    """L'annuaire des chefs de gare (pour désigner celui d'une gare) : ceux qui organisent les gares de toute la compagnie."""
+
+    ROLES = IsGareManagerOrReadOnly.ROLES - {Role.CHEF_GARE, Role.SUPERADMIN}
 
 
 class PeutArbitrer(_RolesDeLaCompagnie):

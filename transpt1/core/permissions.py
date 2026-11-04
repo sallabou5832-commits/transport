@@ -1,4 +1,4 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from core.models import Company, Role
 
@@ -29,3 +29,36 @@ class IsPdg(BasePermission):
     def has_permission(self, request, view):
         user = request.user
         return bool(user and user.is_authenticated and user.role == Role.PDG and user.company_id is not None)
+
+
+class PeutGererLesComptes(BasePermission):
+    """Créer les comptes du personnel, les modifier, réinitialiser un mot de passe : le PDG, et le DRH si le règlement
+    intérieur de la compagnie le lui permet (règle `drh_gere_les_comptes`, non permise par défaut, comme avant)."""
+
+    message = "La gestion des comptes est réservée au PDG et au DRH."
+
+    def has_permission(self, request, view):
+        from configuration.regles import REGLEMENT
+        from configuration.services import reglement_de
+
+        user = request.user
+        if not (user and user.is_authenticated and user.company_id is not None):
+            return False
+        if user.role == Role.PDG:
+            return True
+        if user.role != Role.DRH:
+            return False
+        if not reglement_de(user.company_id)["drh_gere_les_comptes"]:
+            self.message = REGLEMENT["drh_gere_les_comptes"].refus
+            return False
+        return True
+
+
+class PeutTenirLaFicheCompagnie(BasePermission):
+    """La fiche de la compagnie (« Ma compagnie ») : chacun lit celle de sa compagnie, seul le PDG la modifie."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated and user.company_id is not None):
+            return False
+        return request.method in SAFE_METHODS or user.role == Role.PDG

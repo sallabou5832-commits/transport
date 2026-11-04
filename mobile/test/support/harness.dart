@@ -5,8 +5,10 @@ import 'package:http/testing.dart';
 import 'package:transport_mobile/api/api_client.dart';
 import 'package:transport_mobile/auth/token_storage.dart';
 import 'package:transport_mobile/services.dart';
+import 'package:transport_mobile/storage/encryption_key.dart';
 import 'package:transport_mobile/storage/local_store.dart';
 import 'package:transport_mobile/sync/connectivity_monitor.dart';
+import 'package:transport_mobile/voice/voice_form_session.dart';
 
 http.Response jsonResponse(Object? data, [int status = 200]) => http.Response(
       jsonEncode(data),
@@ -53,18 +55,21 @@ Map<String, dynamic> userJson({int id = 7, String role = 'guichetier'}) => {
 /// Application complète branchée sur un faux serveur, un stockage en mémoire et une
 /// connectivité pilotée à la main.
 class Harness {
-  Harness({LocalStore? store}) {
+  Harness({LocalStore? store, VoiceFormSession Function()? sessionVocale}) {
     api = ApiClient(baseUrl: 'http://test/api', tokens: tokens, httpClient: server.client);
     services = AppServices.assemble(
       store: store ?? LocalStore.memory(),
       api: api,
       tokens: tokens,
+      secrets: secrets,
       connectivity: connectivity,
+      sessionVocale: sessionVocale,
     );
   }
 
   final server = FakeServer();
   final tokens = MemoryTokenStorage();
+  final secrets = MemorySecretStore();
   final connectivity = FakeConnectivityMonitor();
   late final ApiClient api;
   late final AppServices services;

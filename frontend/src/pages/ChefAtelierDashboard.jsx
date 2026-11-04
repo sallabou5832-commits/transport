@@ -75,7 +75,7 @@ export default function ChefAtelierDashboard() {
           method: 'PATCH',
           body: { statut: 'termine', temps_passe_minutes: temps },
         }),
-      `Intervention #${ordre.id} clôturée : le véhicule est de nouveau disponible pour le régulateur.`,
+      `Intervention #${ordre.id} clôturée : le régulateur est prévenu dès que le véhicule redevient disponible.`,
     )
   }
 

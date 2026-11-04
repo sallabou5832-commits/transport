@@ -21,6 +21,8 @@ from core.serializers import nom_complet
 from maintenance import analyses, preventif, stock
 from maintenance.models import (
     DemandePiece,
+    EntreePiece,
+    InventairePiece,
     OrdreReparation,
     Piece,
     PlanEntretien,
@@ -36,15 +38,19 @@ from maintenance.permissions import (
     CanManageStockMovement,
     PeutGererLesPlans,
     PeutPiloterLAtelier,
+    PeutRecevoirEtInventorier,
     PeutServirLesDemandes,
     PeutUtiliserLesDemandesDePieces,
     PeutVoirLaFicheVehicule,
     PeutVoirLeBesoinDeRenouvellement,
+    PeutVoirLesIntervenants,
     PeutVoirLesSuggestionsDeCommande,
 )
 from maintenance.serializers import (
     ROLES_INTERVENANTS,
     DemandePieceSerializer,
+    EntreePieceSerializer,
+    InventairePieceSerializer,
     OrdreReparationSerializer,
     PieceSerializer,
     PlanEntretienSerializer,
@@ -118,9 +124,24 @@ class OrdreReparationViewSet(MaintenanceViewSet):
     def perform_update(self, serializer):
         # Le règlement intérieur dit si le mécanicien peut confier lui-même son ordre à un collègue (sinon : `reaffecter`).
         nouveau = serializer.validated_data.get("mecanicien")
-        if nouveau is not None and nouveau.pk != serializer.instance.mecanicien_id:
+        ancien = serializer.instance.mecanicien
+        confie = nouveau is not None and nouveau.pk != ancien.pk
+        if confie:
             exiger_regle(self.request.user, "mecanicien_confie_ses_ordres")
         super().perform_update(serializer)
+        if confie:  # le collègue qui reprend l'ordre et le chef d'atelier en sont prévenus, comme pour une réaffectation
+            ordre = serializer.instance
+            alerter(
+                ordre.company,
+                type=TypeAlerte.ORDRE_REPARATION,
+                gravite=GraviteAlerte.INFO,
+                titre=f"Ordre de réparation confié : {ordre.vehicule.immatriculation}",
+                message=f"{ordre.description}. Confié à {nom_complet(nouveau)} par {nom_complet(self.request.user)}.",
+                roles=[Role.CHEF_ATELIER],
+                destinataires=[nouveau, ancien],
+                objet=ordre,
+                cree_par=self.request.user,
+            )
 
     def perform_destroy(self, instance):
         exiger_regle(self.request.user, "mecanicien_supprime_ses_ordres")
@@ -238,6 +259,11 @@ class SortiePieceViewSet(MaintenanceViewSet):
     serializer_class = SortiePieceSerializer
     permission_classes = [IsAuthenticated, IsSameCompany, CanManageStockMovement]
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        piece = lire_entier(self.request.query_params.get("piece"))  # facultatif : l'historique d'une pièce
+        return queryset if piece is None else queryset.filter(piece_id=piece)
+
     def perform_create(self, serializer):
         user = self.request.user
         if user.company_id is None:
@@ -252,11 +278,63 @@ class SortiePieceViewSet(MaintenanceViewSet):
 
     def perform_update(self, serializer):
         exiger_regle(self.request.user, "sorties_pieces_corrigeables")
-        super().perform_update(serializer)
+        sortie, donnees = serializer.instance, serializer.validated_data
+        if donnees.get("piece", sortie.piece) != sortie.piece or (
+            donnees.get("ordre_reparation", sortie.ordre_reparation) != sortie.ordre_reparation
+        ):
+            raise ValidationError("Une sortie ne change ni de pièce ni d'ordre : annulez-la et enregistrez la bonne.")
+        serializer.instance = stock.corriger_sortie(sortie, donnees.get("quantite", sortie.quantite), self.request.user)
 
     def perform_destroy(self, instance):
         exiger_regle(self.request.user, "sorties_pieces_corrigeables")
-        super().perform_destroy(instance)
+        stock.annuler_sortie(instance)
+
+
+class _MouvementsViewSet(
+    CompanyScopedQuerysetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet
+):
+    """Mouvements qui ne se modifient ni ne se suppriment : une erreur se rattrape par un inventaire. Filtre `?piece=<id>`."""
+
+    permission_classes = [IsAuthenticated, IsSameCompany, PeutRecevoirEtInventorier]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        piece = lire_entier(self.request.query_params.get("piece"))
+        return queryset if piece is None else queryset.filter(piece_id=piece)
+
+
+class EntreePieceViewSet(_MouvementsViewSet):
+    """Réceptions au magasin (`piece`, `quantite`, `prix_unitaire`, `fournisseur`, `reference_document`) : le stock monte."""
+
+    queryset = EntreePiece.objects.select_related("piece", "recue_par")
+    serializer_class = EntreePieceSerializer
+
+    def perform_create(self, serializer):
+        donnees = serializer.validated_data
+        serializer.instance = stock.recevoir_piece(
+            piece=donnees["piece"],
+            quantite=donnees["quantite"],
+            prix_unitaire=donnees.get("prix_unitaire"),
+            fournisseur=donnees.get("fournisseur", ""),
+            reference_document=donnees.get("reference_document", ""),
+            auteur=self.request.user,
+        )
+
+
+class InventairePieceViewSet(_MouvementsViewSet):
+    """Inventaires (`piece`, `quantite_comptee`, `motif` obligatoire s'il y a un écart) : le stock prend la quantité comptée."""
+
+    queryset = InventairePiece.objects.select_related("piece", "compte_par")
+    serializer_class = InventairePieceSerializer
+
+    def perform_create(self, serializer):
+        donnees = serializer.validated_data
+        serializer.instance = stock.inventorier(
+            piece=donnees["piece"],
+            quantite_comptee=donnees["quantite_comptee"],
+            motif=donnees.get("motif", ""),
+            auteur=self.request.user,
+        )
 
 
 class PlanEntretienViewSet(MaintenanceViewSet):
@@ -423,6 +501,18 @@ class ChargeMecaniciensView(APIView):
 
     def get(self, request):
         return Response(analyses.charge_mecaniciens(request.user.company))
+
+
+class IntervenantsView(APIView):
+    """Les intervenants actifs de l'atelier (mécaniciens et chef d'atelier), pour confier un ordre à un collègue."""
+
+    permission_classes = [IsAuthenticated, PeutVoirLesIntervenants]
+
+    def get(self, request):
+        intervenants = User.objects.filter(
+            company=request.user.company, role__in=ROLES_INTERVENANTS, is_active=True
+        ).order_by("last_name", "first_name", "username")
+        return Response([{"id": u.id, "nom": nom_complet(u), "role": u.role} for u in intervenants])
 
 
 class BesoinRenouvellementView(APIView):

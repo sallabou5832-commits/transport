@@ -43,7 +43,8 @@ class CarteConsumer(AsyncWebsocketConsumer):
 
     async def _surveiller(self, identifiant):
         """Une connexion WebSocket survit au jeton qui l'a ouverte : sans ce contrôle, un compte suspendu par le PDG (ou un
-        jeton expiré) continuerait de recevoir les positions des cars tant que le navigateur reste ouvert."""
+        jeton expiré, ou une session fermée) continuerait de recevoir les positions des cars tant que le navigateur reste
+        ouvert."""
         while True:
             await asyncio.sleep(settings.CARTE_REVALIDATION_SECONDES)
             echeance = self.scope.get('jeton_expire_le')
@@ -56,8 +57,8 @@ class CarteConsumer(AsyncWebsocketConsumer):
                 # surveillance en silence : on réessaie au prochain contrôle.
                 logger.exception('Carte : relecture du compte %s impossible, nouvel essai au prochain contrôle', identifiant)
                 continue
-            if not self._peut_voir(utilisateur):
-                break
+            if not self._peut_voir(utilisateur) or utilisateur.version_session != self.scope.get('version_session'):
+                break  # compte suspendu, droits retirés, ou session fermée (mot de passe changé...)
         await self.close(code=CODE_SESSION_TERMINEE)
 
     async def receive(self, text_data=None, bytes_data=None):

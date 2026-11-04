@@ -3,7 +3,7 @@ import datetime
 from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -143,12 +143,18 @@ class AnnulationsDuLienView(_VueDuLogiciel):
 class ReglageBilletterieView(ActeurAuditeMixin, APIView):
     """Le mode de billetterie de la compagnie : `integre` (défaut), `externe` (la vente au guichet est fermée, les ventes
     arrivent du logiciel de la compagnie) ou `mixte` (les deux). Tous le lisent ; le PDG et le directeur des opérations le
-    règlent (`PATCH {"mode": ...}`)."""
+    règlent (`PATCH` ou `PUT` `{"mode": ...}`)."""
 
     permission_classes = [IsAuthenticated, PeutVoirOuReglerLeModeDeBilletterie]
 
+    def get_serializer(self, *args, **kwargs):  # OPTIONS annonce ainsi le réglage à qui peut régler
+        return serializers.Serializer(*args, **kwargs)
+
     def get(self, request):
         return Response(self._donnees(request.user))
+
+    def put(self, request):
+        return self.patch(request)
 
     def patch(self, request):
         mode = request.data.get("mode")

@@ -12,6 +12,7 @@ from audit.serializers import JournalAuditSerializer
 from core.dates import lire_date
 from core.entiers import lire_entier
 from core.models import Role
+from core.sessions import ConnexionSerializer
 from core.textes import champ_du_corps
 from core.throttles import ThrottleConnexionAdresse, ThrottleConnexionCompte
 
@@ -80,8 +81,9 @@ def _enregistrer_connexion(action, username, utilisateur=None):
 class ConnexionAuditee(TokenObtainPairView):
     """Connexion JWT dont chaque tentative, réussie ou non, est tracée (repérer un essai de mots de passe).
     Le mot de passe saisi n'est jamais conservé : seul l'identifiant l'est. Les essais trop rapprochés sont refusés
-    (429) : voir `core.throttles`."""
+    (429) : voir `core.throttles`. `duree_session` (facultatif) : « rester connecté », voir `core.sessions`."""
 
+    serializer_class = ConnexionSerializer
     throttle_classes = [ThrottleConnexionCompte, ThrottleConnexionAdresse]
 
     def throttled(self, request, wait):

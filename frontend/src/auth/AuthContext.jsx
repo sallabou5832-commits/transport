@@ -25,13 +25,21 @@ export function AuthProvider({ children }) {
   // rechargement de la page.
   useEffect(() => surSessionExpiree(() => setUser(null)), [])
 
-  async function login(username, password) {
+  // `dureeSession` : « rester connecté » (voir `DUREES_SESSION`) ; absente, la session dure 1 jour comme avant.
+  async function login(username, password, dureeSession) {
     const tokens = await apiFetch('/auth/login/', {
       method: 'POST',
-      body: { username, password },
+      body: dureeSession ? { username, password, duree_session: dureeSession } : { username, password },
       auth: false,
     })
     setTokens(tokens.access, tokens.refresh)
+    const me = await apiFetch('/auth/me/')
+    setUser(me)
+    return me
+  }
+
+  // Après un changement qui touche le compte (mot de passe provisoire remplacé) : relit l'utilisateur connecté.
+  async function rafraichirUtilisateur() {
     const me = await apiFetch('/auth/me/')
     setUser(me)
     return me
@@ -43,7 +51,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, rafraichirUtilisateur }}>
       {children}
     </AuthContext.Provider>
   )

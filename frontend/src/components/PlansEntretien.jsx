@@ -112,6 +112,11 @@ export default function PlansEntretien({ onChange }) {
   const fait = (plan) =>
     agir(() => apiFetch(`/plans-entretien/${plan.id}/realise/`, { method: 'POST', body: {} }), `Entretien « ${plan.libelle} » noté comme fait : le plan repart de zéro.`)
 
+  function retirer(plan) {
+    if (!window.confirm(`Retirer le plan « ${plan.libelle} » de ${plan.vehicule_immatriculation} (véhicule vendu, plan déclaré par erreur) ?`)) return
+    agir(() => apiFetch(`/plans-entretien/${plan.id}/`, { method: 'DELETE' }), `Plan « ${plan.libelle} » retiré.`)
+  }
+
   if (!data) return <Alert>{error}</Alert>
   const { plans, vehicules } = data
 
@@ -156,9 +161,14 @@ export default function PlansEntretien({ onChange }) {
                     <Badge ton={ETATS[plan.echeance.etat].ton}>{ETATS[plan.echeance.etat].libelle}</Badge>
                   </td>
                   <td>
-                    <button type="button" className="button-secondary button-small" disabled={envoi} onClick={() => fait(plan)}>
-                      Fait
-                    </button>
+                    <div className="button-row">
+                      <button type="button" className="button-secondary button-small" disabled={envoi} onClick={() => fait(plan)}>
+                        Fait
+                      </button>
+                      <button type="button" className="button-secondary button-small" disabled={envoi} onClick={() => retirer(plan)}>
+                        Retirer
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

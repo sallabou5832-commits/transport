@@ -57,7 +57,8 @@ class CheminDeStockage:
         self.dossier = dossier
 
     def __call__(self, instance, nom):
-        return f"{self.dossier}/{instance.company_id}/{uuid.uuid4().hex}{os.path.splitext(nom)[1].lower()}"
+        compagnie = getattr(instance, "company_id", instance.pk)  # la compagnie elle-même, pour son logo
+        return f"{self.dossier}/{compagnie}/{uuid.uuid4().hex}{os.path.splitext(nom)[1].lower()}"
 
     def __eq__(self, autre):
         return isinstance(autre, CheminDeStockage) and autre.dossier == self.dossier

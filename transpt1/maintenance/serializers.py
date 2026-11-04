@@ -4,7 +4,16 @@ from rest_framework import serializers
 from core.models import Role
 from core.serializers import CompanySerializer, nom_complet
 from maintenance import preventif
-from maintenance.models import DemandePiece, OrdreReparation, Piece, PlanEntretien, SortiePiece, StatutOrdreReparation
+from maintenance.models import (
+    DemandePiece,
+    EntreePiece,
+    InventairePiece,
+    OrdreReparation,
+    Piece,
+    PlanEntretien,
+    SortiePiece,
+    StatutOrdreReparation,
+)
 
 # Qui peut être désigné pour une intervention : le mécanicien, ou le chef d'atelier qui la prend lui-même.
 ROLES_INTERVENANTS = {Role.MECANICIEN, Role.CHEF_ATELIER}
@@ -13,10 +22,14 @@ ROLES_INTERVENANTS = {Role.MECANICIEN, Role.CHEF_ATELIER}
 class PieceSerializer(serializers.ModelSerializer):
     company = CompanySerializer(read_only=True)
     en_alerte = serializers.BooleanField(read_only=True)
+    valeur_stock = serializers.SerializerMethodField()
 
     class Meta:
         model = Piece
-        fields = ["id", "nom", "reference", "quantite_stock", "seuil_alerte", "company", "en_alerte"]
+        fields = [
+            "id", "nom", "reference", "quantite_stock", "seuil_alerte", "company", "en_alerte", "prix_unitaire", "fournisseur",
+            "emplacement", "valeur_stock",
+        ]
         read_only_fields = ["company"]
         # L'unicité (compagnie, référence) est vérifiée ci-dessous : la compagnie vient de la requête, pas du corps.
         validators = []
@@ -29,6 +42,50 @@ class PieceSerializer(serializers.ModelSerializer):
         if doublon.exists():
             raise serializers.ValidationError("Une pièce de votre compagnie porte déjà cette référence.")
         return reference
+
+    def get_valeur_stock(self, obj):
+        """Stock × prix unitaire, en francs ; `None` tant que la pièce n'a pas de prix."""
+        return None if obj.prix_unitaire is None else str(obj.prix_unitaire * obj.quantite_stock)
+
+
+class _MouvementSerializer(serializers.ModelSerializer):
+    piece_nom = serializers.CharField(source="piece.nom", read_only=True)
+
+    def validate_piece(self, piece):
+        if piece.company_id != self.context["request"].user.company_id:
+            raise serializers.ValidationError("Cette pièce n'appartient pas à votre compagnie.")
+        return piece
+
+
+class EntreePieceSerializer(_MouvementSerializer):
+    recue_par_nom = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EntreePiece
+        fields = [
+            "id", "piece", "piece_nom", "quantite", "prix_unitaire", "fournisseur", "reference_document", "recue_par",
+            "recue_par_nom", "date",
+        ]
+        read_only_fields = ["recue_par", "date"]
+
+    def get_recue_par_nom(self, obj):
+        return nom_complet(obj.recue_par)
+
+
+class InventairePieceSerializer(_MouvementSerializer):
+    compte_par_nom = serializers.SerializerMethodField()
+    ecart = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = InventairePiece
+        fields = [
+            "id", "piece", "piece_nom", "quantite_attendue", "quantite_comptee", "ecart", "motif", "compte_par",
+            "compte_par_nom", "date",
+        ]
+        read_only_fields = ["quantite_attendue", "compte_par", "date"]
+
+    def get_compte_par_nom(self, obj):
+        return nom_complet(obj.compte_par)
 
 
 class OrdreReparationSerializer(serializers.ModelSerializer):

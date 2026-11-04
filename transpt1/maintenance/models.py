@@ -14,6 +14,13 @@ class Piece(models.Model):
     quantite_stock = models.PositiveIntegerField(default=0)
     seuil_alerte = models.PositiveIntegerField(default=0)
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="pieces")
+    # Fiche de la pièce (écran « Pièces et stock ») ; toutes facultatives. Le prix unitaire est le coût moyen pondéré des
+    # réceptions (voir `maintenance.stock.recevoir_piece`), modifiable à la main.
+    prix_unitaire = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)]
+    )
+    fournisseur = models.CharField("fournisseur habituel", max_length=120, blank=True)
+    emplacement = models.CharField("emplacement au magasin", max_length=60, blank=True)
 
     class Meta:
         ordering = ["nom"]
@@ -138,13 +145,44 @@ class OrdreReparation(models.Model):
                 self.vehicule.statut = VehiculeStatut.EN_MAINTENANCE
                 self.vehicule.save(update_fields=["statut"])
         elif old_statut != StatutOrdreReparation.TERMINE and self.statut == StatutOrdreReparation.TERMINE:
-            self.vehicule.statut = VehiculeStatut.DISPONIBLE
-            self.vehicule.save(update_fields=["statut"])
-            self._alerter_vehicule_libere()
+            if self._attend_la_levee_du_qhse():
+                self.vehicule.statut = VehiculeStatut.BLOQUE_SECURITE
+                self.vehicule.save(update_fields=["statut"])
+                self._alerter_levee_attendue()
+            else:
+                self.vehicule.statut = VehiculeStatut.DISPONIBLE
+                self.vehicule.save(update_fields=["statut"])
+                self._alerter_vehicule_libere()
             if self.plan_entretien_id:  # l'entretien préventif est fait : le plan repart de zéro
                 from maintenance.preventif import renouveler_apres_ordre
 
                 renouveler_apres_ordre(self)
+
+    def _attend_la_levee_du_qhse(self):
+        """Le car est sous un blocage de sécurité du QHSE et le règlement intérieur de la compagnie exige que le QHSE le lève
+        lui-même : la réparation terminée ne suffit pas à le remettre en service."""
+        from configuration.services import reglement_de
+        from personnel_roulant.models import BlocageSecurite
+
+        return (
+            BlocageSecurite.objects.filter(vehicule=self.vehicule, leve_le__isnull=True).exists()
+            and not reglement_de(self.company_id)["reparation_leve_le_blocage_qhse"]
+        )
+
+    def _alerter_levee_attendue(self):
+        from alertes.models import GraviteAlerte, TypeAlerte
+        from alertes.services import alerter
+        from core.models import Role
+
+        alerter(
+            self.company,
+            type=TypeAlerte.BLOCAGE_SECURITE,
+            gravite=GraviteAlerte.ATTENTION,
+            titre=f"Réparation terminée : {self.vehicule.immatriculation} attend la levée du blocage",
+            message=f"Intervention terminée à l'atelier : {self.description}. Le car reste bloqué jusqu'à la levée du QHSE.",
+            roles=[Role.QHSE],
+            objet=self,
+        )
 
     def _alerter_vehicule_libere(self):
         """La clôture libère le véhicule pour le régulateur : il en est prévenu, ainsi que les gares concernées."""
@@ -178,6 +216,55 @@ class SortiePiece(models.Model):
 
     def __str__(self):
         return f"{self.quantite} x {self.piece} (OR {self.ordre_reparation_id})"
+
+
+class EntreePiece(models.Model):
+    """Une réception au magasin : le stock monte d'autant (voir `maintenance.stock.recevoir_piece`). Ne se modifie pas : une
+    erreur se rattrape par un inventaire, qui garde la trace de l'écart."""
+
+    piece = models.ForeignKey(Piece, on_delete=models.PROTECT, related_name="entrees")
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="entrees_pieces")
+    quantite = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    prix_unitaire = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)]
+    )
+    fournisseur = models.CharField(max_length=120, blank=True)
+    # Bon de livraison, facture ou bon de commande du fournisseur.
+    reference_document = models.CharField(max_length=60, blank=True)
+    recue_par = models.ForeignKey("core.User", on_delete=models.PROTECT, related_name="+")
+    date = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date", "-id"]
+        verbose_name = "réception de pièces"
+        verbose_name_plural = "réceptions de pièces"
+
+    def __str__(self):
+        return f"+{self.quantite} x {self.piece}"
+
+
+class InventairePiece(models.Model):
+    """Un comptage au magasin : le stock prend la quantité comptée ; l'écart avec le stock attendu est gardé, avec son motif."""
+
+    piece = models.ForeignKey(Piece, on_delete=models.PROTECT, related_name="inventaires")
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="inventaires_pieces")
+    quantite_attendue = models.PositiveIntegerField()  # le stock tel que le connaissait l'application au comptage
+    quantite_comptee = models.PositiveIntegerField()
+    motif = models.CharField(max_length=255, blank=True)
+    compte_par = models.ForeignKey("core.User", on_delete=models.PROTECT, related_name="+")
+    date = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date", "-id"]
+        verbose_name = "inventaire d'une pièce"
+        verbose_name_plural = "inventaires des pièces"
+
+    def __str__(self):
+        return f"Inventaire {self.piece} : {self.quantite_comptee} (attendu {self.quantite_attendue})"
+
+    @property
+    def ecart(self):
+        return self.quantite_comptee - self.quantite_attendue
 
 
 class StatutDemandePiece(models.TextChoices):

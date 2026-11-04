@@ -36,11 +36,23 @@ Règles générales, valables sauf mention contraire dans les tableaux ci-dessou
 | **Gare** | Tous les rôles de la compagnie | `chef_gare` (uniquement la gare qu'il dirige — `chef` == lui), `directeur_exploitation`, `secretaire_general`, `pdg` |
 | **Ligne** | Tous les rôles de la compagnie | `chef_ligne`, `directeur_exploitation`, `secretaire_general`, `pdg` |
 | **Vehicule** | Tous les rôles de la compagnie | `directeur_technique`, `chef_atelier`, `directeur_exploitation`, `secretaire_general`, `pdg` |
+| **Quai** (`/quais/`, `?gare=<id>`) | Tous les rôles de la compagnie | Les mêmes que la gare : `chef_gare` (uniquement les quais de **sa** gare), `directeur_exploitation`, `secretaire_general`, `pdg`. Un quai ne change pas de gare ; deux quais d'une gare ne portent pas le même nom |
+| **Chefs de gare possibles** (`GET /gares/chefs-possibles/`) | `directeur_exploitation`, `secretaire_general`, `pdg` : les chefs de gare actifs de la compagnie et la gare que chacun dirige (annuaire pour désigner le chef d'une gare) | — (lecture seule) |
+| **Fiche de la compagnie** (`/compagnie/` : identité, coordonnées, mentions légales ; `/compagnie/logo/`, `POST /compagnie/logo/retirer/`) | Tous les rôles de la compagnie (la leur seulement ; le superadmin n'en a pas : 403) | `pdg` uniquement. Logo PNG ou JPEG, 1 Mo au plus, contrôlé comme toute pièce jointe et jamais servi par un lien public |
 
 **Champs pilotés ailleurs** : sur une **ligne**, `statut`, `est_fermee`, `fermee_jusqu_au` et `motif_fermeture` sont en lecture
 seule (une fermeture passe par une demande décidée, voir §14) et `tarif` (FCFA) est imposé à la vente quand il est renseigné ;
 sur un **véhicule**, `gare` (gare d'attache) est en lecture seule (elle change par l'arbitrage `reaffecter-gare`, §14) et
 `kilometrage` se relève par les mêmes rôles que la fiche du véhicule (il déclenche l'entretien préventif, §15).
+
+**Fiches** (toutes facultatives, une compagnie qui n'y touche pas fonctionne comme avant) : gare — `adresse`, `telephone`,
+`heure_ouverture`, `heure_fermeture`, `chef_nom` (lecture) ; un chef de gare ne dirige qu'**une** gare (400 qui dit laquelle) ;
+ligne — `distance_km`, `duree_prevue_minutes`, `gare_depart_nom` / `gare_arrivee_nom` (lecture) ; véhicule — `marque`, `modele`,
+`annee_mise_en_circulation` (de 1950 à l'an prochain), `classe` (`standard`, `climatise`, `vip`, vide = non précisée),
+`numero_carte_grise`, `carte_transport_numero`, `carte_transport_echeance`. Les échéances (autorisation d'exercer de la
+compagnie, carte de transport) sont **rappelées à l'écran, jamais imposées**. Les écrans du site (`/compagnie`, `/gares`,
+`/lignes`, `/vehicules`, fiche de la gare au tableau de bord du chef de gare) ne suppriment ni gare, ni ligne, ni véhicule, et
+ne changent pas le statut d'un véhicule : l'API le permet toujours aux rôles ci-dessus, comme avant.
 
 | Ressource | Lecture | Écriture |
 |---|---|---|
@@ -158,12 +170,14 @@ pas, à lui seul, le statut du véhicule.
 
 | Ressource | Lecture | Écriture |
 |---|---|---|
-| **Piece** (catalogue stock) | Tous les rôles de la compagnie | `magasinier`, `chef_atelier`, `directeur_technique` |
+| **Piece** (catalogue stock ; fiche : prix unitaire, fournisseur habituel, emplacement, valeur du stock) | Tous les rôles de la compagnie | `magasinier`, `chef_atelier`, `directeur_technique` ; la correction directe de `quantite_stock` reste possible (tracée au journal), mais l'écran « Pièces et stock » passe par les réceptions et l'inventaire |
+| **EntreePiece** (`/entrees-pieces/`, `?piece=`) — réception au magasin | Tous les rôles de la compagnie | Créer : `magasinier`, `chef_atelier`, `directeur_technique` ; le stock monte, le prix unitaire devient le coût moyen pondéré. Ni modification ni suppression (405) : une erreur se rattrape par un inventaire |
+| **InventairePiece** (`/inventaires-pieces/`, `?piece=`) — comptage | Tous les rôles de la compagnie | Créer : les mêmes ; le stock prend la quantité comptée, l'écart est gardé, **motif obligatoire** s'il y a un écart ; un manque prévient le `directeur_technique`. Ni modification ni suppression |
 | **Pièces sous seuil** (`/pieces/sous-seuil/`) | Tous les rôles de la compagnie | — (lecture seule) |
 | **OrdreReparation** — création | — | `chef_atelier`, `directeur_technique`, `directeur_exploitation`, `secretaire_general`, `pdg` |
 | **OrdreReparation** — lecture | Tous les rôles de la compagnie | — |
 | **OrdreReparation** — modification/suppression | — | `chef_atelier` (tout ordre), le `mecanicien` assigné (uniquement son propre ordre) ; le règlement intérieur (§12) peut retirer au mécanicien le droit de confier son ordre à un collègue (il passe alors par `reaffecter`) ou de le supprimer |
-| **SortiePiece** | Tous les rôles de la compagnie | `magasinier`, `chef_atelier`, `directeur_technique` ; le `mecanicien` peut en créer (le stock est mis à jour à chaque sortie qu'il enregistre) mais **uniquement pour ses propres ordres**. Corriger ou annuler une sortie après coup (`magasinier`, `chef_atelier`, `directeur_technique`) : permis par défaut, interdit si le **règlement intérieur** de la compagnie le décide (§12) ; une correction ou une annulation ne remet pas le stock à jour |
+| **SortiePiece** (`?piece=` facultatif) | Tous les rôles de la compagnie | `magasinier`, `chef_atelier`, `directeur_technique` ; le `mecanicien` peut en créer (le stock est mis à jour à chaque sortie qu'il enregistre) mais **uniquement pour ses propres ordres**. Corriger ou annuler une sortie après coup (`magasinier`, `chef_atelier`, `directeur_technique`) : permis par défaut, interdit si le **règlement intérieur** de la compagnie le décide (§12) ; une correction ou une annulation ne remet pas le stock à jour |
 
 Règles métier automatiques (aucun rôle ne peut les contourner) : un `OrdreReparation` créé sur
 un véhicule déjà `bloque_securite`/`en_maintenance` passe le véhicule à `en_maintenance` ; un
@@ -304,6 +318,10 @@ gare de départ d'un car, le demandeur d'une pièce…). Déclencheurs, par pôl
 | **Colis** (`/colis/`, `/departs/{id}/plan-chargement/`) | `bagagiste`, `guichetier`, `controleur_ligne`, `chauffeur_principal`, `chauffeur_relais`, `qhse`, `chef_gare`, `chef_ligne`, `directeur_exploitation`, `secretaire_general`, `pdg` (noms et téléphones des clients : pas de transparence par défaut) | Enregistrer, charger, remettre : `bagagiste`, `chef_gare`, `chef_ligne`, `directeur_exploitation`, `secretaire_general`, `pdg` |
 | **Annuler** un colis, **renvoyer** un code de retrait | — | La supervision uniquement (`chef_gare`, `chef_ligne`, `directeur_exploitation`, `secretaire_general`, `pdg`), pas le bagagiste |
 
+`?gare=<id>` limite la liste à ce qui part de cette gare ou y arrive (écran « Colis de la gare » du chef de gare, qui y renvoie
+un code, annule un enregistrement avec son motif et marque arrivé un colis resté « chargé » alors que le car est arrivé). Chaque
+colis porte `gare_depart` et `depart_statut`.
+
 Le client n'a pas accès au logiciel : son **code de retrait** lui est envoyé par SMS ou WhatsApp à l'enregistrement. Le code
 n'est **jamais** stocké en clair ni affiché à l'écran du bagagiste (empreinte seulement) ; trois essais erronés bloquent la
 remise. Statuts : enregistré, chargé, arrivé, retiré (ou annulé). Les frais de fret entrent dans la synthèse financière.
@@ -313,7 +331,7 @@ remise. Statuts : enregistré, chargé, arrivé, retiré (ou annulé). Les frais
 | Endpoint | Accès |
 |---|---|
 | `/configuration/moi/`, `/configuration/catalogue/`, `/configuration/compagnie/` (GET) | Tout utilisateur de la compagnie |
-| `/configuration/compagnie/` (PATCH) | `pdg` uniquement : le **cadre** (automatisation et gamification maximales) qu'aucun poste ne dépasse |
+| `/configuration/compagnie/` (PATCH) | `pdg` uniquement : le **cadre** (automatisation et gamification maximales) qu'aucun poste ne dépasse, et l'**accès aux comptes** : session la plus longue (`duree_session_max`, défaut « jusqu'à la déconnexion ») et code court exigé sur le mobile (`code_court_exige`, défaut non) |
 | `/configuration/postes/`, `/configuration/postes/{rôle}/` (GET, PUT) | Chaque échelon règle **les postes directement sous lui** (voir ci-dessous) ; le PDG règle n'importe quel poste |
 | `/configuration/agents/`, `/configuration/agents/{id}/` (GET, PUT) | Idem, pour un agent précis (aisance numérique, préférence vocale, réglages propres) |
 | `/configuration/reglement/` (GET) | Tout utilisateur de la compagnie : chaque règle, si elle est permise, son défaut, les postes concernés, le pôle qui la règle et si l'appelant peut la régler |
@@ -323,7 +341,8 @@ Hiérarchie : PDG → secrétaire général, QHSE, directeur des opérations, di
 juridique ; directeur des opérations → chef de gare, chef de ligne, contrôleur ; chef de gare → guichetier, bagagiste ; chef
 de ligne → chauffeurs ; directeur technique → magasinier, chef d'atelier ; chef d'atelier → mécanicien. Un échelon ne règle ni
 son supérieur, ni ses pairs. **Ce qui se règle** : niveau d'automatisation (manuel / assisté / automatique), niveau de
-gamification (aucun / sobre / complet), fonctions désactivées, préférence vocale ; la valeur d'un agent prime sur celle de son
+gamification (aucun / sobre / complet), fonctions désactivées, préférence vocale, et pour un poste la **session la plus
+longue** (`duree_session_max`, jamais au-delà du plafond de la compagnie : un guichet partagé, par exemple) ; la valeur d'un agent prime sur celle de son
 poste, qui prime sur le cadre, sans jamais le dépasser. Le serveur **applique** ces réglages (vente de tickets, enregistrement de
 colis, planification, clôture de caisse refusent avec un message clair quand la fonction est retirée).
 
@@ -339,6 +358,26 @@ journal d'audit.
 | `mecanicien_supprime_ses_ordres` : supprimer son ordre de réparation | `mecanicien` | `directeur_technique`, `pdg` | permis |
 | `chauffeur_supprime_ses_feuilles` : supprimer sa feuille de route | `chauffeur_principal`, `chauffeur_relais` | `directeur_exploitation`, `pdg` | permis |
 | `chauffeur_supprime_ses_incidents` : supprimer un incident qu'il a déclaré | `chauffeur_principal`, `chauffeur_relais` | `directeur_exploitation`, `pdg` | permis |
+| `drh_gere_les_comptes` : créer les comptes du personnel, les modifier, réinitialiser leur mot de passe | `drh` | `pdg` (écran « Cadre de la compagnie ») | **non permis** (comme avant : seul le PDG intervenait sur les comptes) |
+| `reparation_leve_le_blocage_qhse` : la réparation terminée remet en service un car bloqué par le QHSE ; non permis, le car reste bloqué (le QHSE est prévenu) jusqu'à ce que le QHSE lève le blocage | `chef_atelier`, `mecanicien`, `directeur_technique` | `pdg` | permis (comme avant) |
+
+Toutes ces règles se règlent dans l'écran **« Règlement intérieur »** (`pdg`, `directeur_technique`, `directeur_exploitation` :
+chacun n'y voit que les règles qu'il peut régler). `/configuration/moi/` donne à chacun `reglement`, ce que le règlement permet
+à son poste : l'écran n'affiche que les gestes permis (supprimer sa feuille de route ou un incident, confier ou supprimer son
+ordre, corriger ou annuler une sortie). Corriger une sortie reporte l'écart sur le stock (refusé si le stock ne le couvre pas, et
+une sortie ne change ni de pièce ni d'ordre) ; l'annuler remet ses pièces en stock.
+
+**Préférences personnelles** (`/configuration/mes-preferences/`, GET / PATCH, chacun pour lui-même) : mode vocal (vide :
+comme réglé par le supérieur), son et notification du navigateur pour une alerte critique. Le choix de l'agent l'emporte sur
+celui de son supérieur, **sauf si celui-ci l'a imposé** (`prefere_vocal_impose` du poste ou de l'agent, dans
+`/configuration/postes/` et `/configuration/agents/`) : l'agent reçoit alors un refus (400) et `vocal_impose` vaut vrai dans
+`/configuration/moi/`.
+
+**Accès aux comptes** (`/auth/…`, tout compte, l'opérateur de la plateforme compris) : chacun change son mot de passe
+(`POST /auth/mot-de-passe/`, l'actuel est exigé, essais limités comme la connexion) et ferme les sessions de ses autres
+appareils (`POST /auth/fermer-autres-sessions/`) ; personne ne le fait pour un autre ici. La durée d'une session se choisit à
+la connexion sous le plafond ci-dessus ; un plafond abaissé ferme au renouvellement suivant les sessions ouvertes depuis plus
+longtemps. Le code court du mobile est vérifié sur le téléphone seulement (le serveur ne le connaît pas).
 
 ## 13. Gamification (`gamification`)
 
@@ -360,7 +399,7 @@ bagagistes, ateliers, contrôleurs.
 | **Demandes sur les lignes** (`/changements-ligne/`, `POST /{id}/decider/`) | `directeur_exploitation`, `pdg` (toutes) ; `chef_ligne`, `chef_gare` (les leurs) | Décider (`valider` / `refuser`) : `directeur_exploitation`, `pdg` |
 | **Gare d'attache d'un véhicule** (`POST /vehicules/{id}/reaffecter-gare/`) | Tous (champ `gare` du véhicule) | `directeur_exploitation`, `pdg` (arbitrage entre gares : motif obligatoire, prévient les deux chefs de gare et la régulation) |
 | **Gares en tension** (`/dashboard/exploitation/`, champs `departs_24h`, `vehicules_disponibles`, `tension`) | `directeur_exploitation`, `pdg`, `secretaire_general` | — |
-| **Comptes des agents** (`/comptes/`, `POST /{id}/suspendre/`, `POST /{id}/reactiver/`) | `pdg` uniquement (les autres comptes de sa compagnie, hors PDG) | `pdg` uniquement |
+| **Comptes des agents** (`/comptes/`) | `pdg` (les autres comptes de sa compagnie, hors PDG) ; `drh` si le règlement intérieur le lui permet (`drh_gere_les_comptes`, **non par défaut**) | Créer (`POST`, mot de passe provisoire renvoyé une seule fois), modifier la fiche (`PATCH` : nom, poste, téléphone, matricule, courriel ; l'identifiant ne change pas), réinitialiser le mot de passe (`POST /{id}/reinitialiser-mot-de-passe/`) : `pdg`, et `drh` si permis. **Suspendre / réactiver** (`POST /{id}/suspendre/`, `/reactiver/`) : `pdg` uniquement |
 | **Investissements** (`/investissements/`) | `pdg`, `secretaire_general`, `directeur_financier` (toutes) ; `directeur_technique`, `directeur_exploitation` (les leurs) | Demander : `directeur_technique`, `directeur_exploitation`, `directeur_financier` ; **décider** (`POST /{id}/decider/`) : `pdg` seul |
 
 - **Ligne fermée** : `statut`, `fermee_jusqu_au` (dernier jour, **inclus** : la ligne se rouvre d'elle-même le lendemain, sans
@@ -372,6 +411,12 @@ bagagistes, ateliers, contrôleurs.
   et le renouvellement du jeton sont refusés) et la connexion est refusée. Rien n'est supprimé (ventes, colis, journal d'audit
   intacts). Motif obligatoire ; le PDG ne suspend ni lui-même, ni un autre PDG ; le DRH et le chef de gare de l'agent sont
   prévenus ; l'action figure au journal d'audit avec le PDG comme acteur.
+- **Comptes du personnel** : un compte créé ou réinitialisé a un **mot de passe provisoire** ; tant qu'il ne l'a pas changé, le
+  compte ne fait rien d'autre que `GET /auth/me/`, `GET /configuration/moi/` et `POST /auth/mot-de-passe/` (403 partout
+  ailleurs, carte en temps réel comprise). Identifiant unique sur la plateforme (le refus ne dit pas à qui il appartient) ;
+  matricule unique dans la compagnie. Un changement de poste ferme les sessions de l'agent ; il est refusé pour un chef qui
+  dirige une gare ou un agent d'une équipe de gare (à défaire d'abord). Personne ne change son propre poste ni ne réinitialise
+  son propre mot de passe ici. Le PDG est prévenu de ce que fait le DRH, et inversement.
 - **Investissement** : le refus exige une raison ; une demande ne se décide qu'une fois ; le demandeur (et la finance, quand un
   montant est engagé) est prévenu. Aucune modification ni suppression après dépôt.
 
@@ -382,6 +427,7 @@ bagagistes, ateliers, contrôleurs.
 | **File d'attente** (`/ordres-reparation/file-attente/`) | Tous les rôles de la compagnie (elle porte le **retour estimé** des véhicules, remonté à la régulation) | — |
 | **Réordonner** (`POST /ordres-reparation/reordonner/`), **prioriser** (`POST /{id}/prioriser/` : urgence, délai estimé), **répartir** (`POST /{id}/reaffecter/`) | — | `directeur_technique`, `chef_atelier` |
 | **Charge de l'atelier** (`/maintenance/charge-mecaniciens/`) | `directeur_technique`, `chef_atelier` | — |
+| **Intervenants de l'atelier** (`/maintenance/intervenants/` : mécaniciens et chef d'atelier actifs, pour confier un ordre) | `directeur_technique`, `chef_atelier`, `mecanicien` | — |
 | **Plans d'entretien** (`/plans-entretien/`, `/echeances/`) | Tous les rôles de la compagnie | `directeur_technique`, `chef_atelier` (créer, modifier, supprimer, `POST /{id}/realise/`) |
 | **Demandes de pièces** (`/demandes-pieces/`) | `magasinier`, `chef_atelier`, `directeur_technique` (toutes) ; `mecanicien` (les siennes) | Demander : `mecanicien` (pour **ses** ordres), `chef_atelier` ; **servir / refuser** : `magasinier` ; annuler : le demandeur ou le chef d'atelier |
 | **Suggestions de commande** (`/pieces/suggestions-commande/`) | `magasinier`, `directeur_technique`, `chef_atelier` | — |
@@ -423,8 +469,12 @@ bagagistes, ateliers, contrôleurs.
 | **Archives** (`/archives/`) | `secretaire_general`, `pdg` | `secretaire_general`, `pdg` : classer, retrouver, **archiver — jamais supprimer** |
 | **Messages directs** (`/messages-directs/`) | `chef_gare` (les siens), `directeur_exploitation`, `pdg`, `secretaire_general` | `chef_gare` : à l'équipe locale et/ou aux chauffeurs dont le car arrive à sa gare (ils les reçoivent dans leur cloche) |
 | **Catalogue** (`/communication/catalogue/`) | Tout poste | — |
+| **Guide d'utilisation** (`/guides/`) | Tout utilisateur connecté, superadmin compris : **la fiche de tous les postes**, rangée par pôle (la fiche de l'opérateur de la plateforme n'est montrée qu'à lui) | — (contenu tenu dans `communication/guides.py`) |
 
-- Le superadmin, sans compagnie, n'en lit aucune. Le registre d'archives dit où retrouver le dossier ; il ne contient pas le fichier.
+- Le superadmin, sans compagnie, n'en lit aucune (le guide excepté). Le registre d'archives dit où retrouver le dossier ; il ne contient pas le fichier.
+- Le guide ne contient aucune donnée d'une compagnie : seul le règlement intérieur qu'il cite (« permis » ou non, pour chaque poste)
+  est celui de la compagnie du lecteur ; le superadmin y lit le défaut du socle. Comme le reste, il reste fermé tant que le mot
+  de passe est provisoire.
 
 ## 18. Conformité de la flotte et carnet de route (`supports`, `personnel_roulant`)
 
@@ -515,7 +565,7 @@ l'éditeur du logiciel : `LIEN_BILLETTERIE.md`.
 | Endpoint | Accès |
 |---|---|
 | `/lien-billetterie/reglage/` (GET) | Tout agent de la compagnie (le superadmin, sans compagnie, n'y a pas accès) |
-| `/lien-billetterie/reglage/` (PATCH `{"mode": ...}`) | `pdg`, `directeur_exploitation` |
+| `/lien-billetterie/reglage/` (PATCH ou PUT `{"mode": ...}`) | `pdg`, `directeur_exploitation` (écran « Billetterie », qui tient aussi les clés et l'import ; le chef de gare importe depuis son tableau de bord) |
 | `/lien-billetterie/cles/` (GET, POST `{"logiciel"}`), `POST /cles/{id}/revoquer/` | `pdg`, `directeur_exploitation` (clés de leur compagnie ; la clé en clair n'est montrée qu'une fois, à la création ; ni modification ni suppression) |
 | `/lien-billetterie/imports/` (GET, POST `fichier` + `logiciel`, GET `/{id}/` avec le compte rendu ligne par ligne) | `pdg`, `directeur_exploitation` (tous les imports de la compagnie) ; `chef_gare` (seulement les départs de **sa** gare, et ses propres imports) |
 | `/lien-billetterie/departs/`, `/ventes/`, `/annulations/` | **Le logiciel de la compagnie seulement**, par sa clé (`Authorization: ApiKey <clé>`) ; jamais un jeton d'agent. La clé n'ouvre aucune autre route |
@@ -535,11 +585,11 @@ l'éditeur du logiciel : `LIEN_BILLETTERIE.md`.
 
 | Rôle | Peut voir (au-delà du droit de lecture générale) | Peut créer/modifier |
 |---|---|---|
-| `pdg` | Tout ce qui est en lecture générale, tableau de bord direction, synthèse financière, carte du réseau, comptes des agents, investissements, scores des agents, besoin de renouvellement | Gares, lignes, véhicules, départs, tickets ; **pouvoirs d'intervention directe** : geler/rouvrir une ligne, réaffecter un véhicule entre gares, suspendre un compte, valider un investissement, fixer le cadre et le règlement intérieur de la compagnie, choisir le mode de billetterie et gérer le lien avec son logiciel |
-| `secretaire_general` | Idem `pdg` (sauf comptes, investissements et pouvoirs d'intervention), notes de service, agenda, archives, finance, synthèse RH et juridique | Gares, lignes, véhicules, départs, tickets ; **secrétariat de la direction** : notes de service, agenda, archives |
+| `pdg` | Tout ce qui est en lecture générale, tableau de bord direction, synthèse financière, carte du réseau, comptes des agents, investissements, scores des agents, besoin de renouvellement, chefs de gare possibles | **Fiche et logo de la compagnie**, gares et quais, lignes, véhicules, départs, tickets ; **pouvoirs d'intervention directe** : geler/rouvrir une ligne, réaffecter un véhicule entre gares, suspendre un compte, valider un investissement, fixer le cadre et le règlement intérieur de la compagnie, choisir le mode de billetterie et gérer le lien avec son logiciel |
+| `secretaire_general` | Idem `pdg` (sauf comptes, investissements et pouvoirs d'intervention), notes de service, agenda, archives, finance, synthèse RH et juridique | Gares et quais, lignes, véhicules, départs, tickets ; **secrétariat de la direction** : notes de service, agenda, archives |
 | `qhse` | Tableau de bord direction et QHSE, incidents graves, carte, contrôles, colis, fiche véhicule | Tickets, feuilles de route/checklists/incidents ; **poser et lever un blocage de sécurité** |
-| `directeur_exploitation` | Tout ce qui est en lecture générale, carte, gares en tension, demandes sur les lignes | Gares, lignes, véhicules, départs, tickets, feuilles de route/checklists/incidents, ordres de réparation (création) ; fermer/rouvrir une ligne et **décider** les demandes des chefs, réaffecter un véhicule entre gares, demander un investissement ; régler le règlement intérieur pour les chauffeurs ; choisir le mode de billetterie, gérer les clés du lien et importer les ventes du logiciel de la compagnie |
-| `chef_gare` | Caisses de son équipe, carte, contrôles, colis | Sa propre gare, départs, tickets, feuilles de route/checklists/incidents, l'équipe de sa gare, colis ; importer les ventes du logiciel de la compagnie pour sa gare ; **demander** la fermeture d'une ligne |
+| `directeur_exploitation` | Tout ce qui est en lecture générale, carte, gares en tension, demandes sur les lignes, chefs de gare possibles | Gares et quais, lignes, véhicules, départs, tickets, feuilles de route/checklists/incidents, ordres de réparation (création) ; fermer/rouvrir une ligne et **décider** les demandes des chefs, réaffecter un véhicule entre gares, demander un investissement ; régler le règlement intérieur pour les chauffeurs ; choisir le mode de billetterie, gérer les clés du lien et importer les ventes du logiciel de la compagnie |
+| `chef_gare` | Caisses de son équipe, carte, contrôles, colis | Sa propre gare et ses quais, départs, tickets, feuilles de route/checklists/incidents, l'équipe de sa gare, colis ; importer les ventes du logiciel de la compagnie pour sa gare ; **demander** la fermeture d'une ligne |
 | `chef_ligne` | Carte, fatigue des conducteurs, contrôles, colis, retours estimés des véhicules à l'atelier | Lignes, départs, tickets, feuilles de route/checklists/incidents, relais de conducteur ; **demander** la fermeture d'une ligne |
 | `guichetier` | Sa propre clôture de caisse | Tickets |
 | `bagagiste` | — | Aucun droit d'écriture particulier |

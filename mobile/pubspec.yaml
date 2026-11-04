@@ -43,6 +43,8 @@ dependencies:
   speech_to_text: ^7.5.0
   flutter_tts: ^4.2.5
   geolocator: ^14.0.2
+  # Empreinte du code court (déjà présent par dépendance : aucune nouvelle bibliothèque téléchargée).
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

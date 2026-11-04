@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from communication import services
+from communication import guides, services
 from communication.models import DocumentArchive, EvenementAgenda, MessageDirect, NoteService
 from communication.permissions import (
     ROLES_SECRETARIAT,
@@ -161,6 +161,15 @@ class DocumentArchiveViewSet(
     @action(detail=True, methods=["post"], url_path="desarchiver")
     def desarchiver(self, request, pk=None):
         return self._basculer(False)
+
+
+class GuidesView(APIView):
+    """Le guide d'utilisation de chaque poste, rangé par pôle : chacun lit celui de tous les postes, le sien signalé."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(guides.guide_pour(request.user))
 
 
 class CatalogueCommunicationView(APIView):

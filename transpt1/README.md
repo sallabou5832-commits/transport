@@ -227,9 +227,23 @@ Voir `mobile/README.md` pour l'installation, les comptes de démonstration et le
 
 ## Endpoints d'authentification
 
-- `POST /api/auth/login/` — obtenir un couple de tokens JWT (`access`/`refresh`), tentative tracée dans le journal d'audit
-- `POST /api/auth/refresh/` — renouveler un token `access`
+- `POST /api/auth/login/` — obtenir un couple de tokens JWT (`access`/`refresh`), tentative tracée dans le journal d'audit ;
+  `duree_session` facultatif (« rester connecté » : `jour`, `semaine`, `mois`, `deconnexion`), ramené au plafond de la
+  compagnie et du poste ; sans lui, 1 jour comme avant. La réponse dit la durée accordée (`duree_session`) et l'échéance
+  (`session_expire_le`)
+- `POST /api/auth/refresh/` — renouveler un token `access`, tant que la session vaut (compte actif, session non fermée,
+  plafond actuel respecté)
 - `GET /api/auth/me/` — infos de l'utilisateur connecté (rôle, compagnie)
+- `POST /api/auth/mot-de-passe/` — changer son mot de passe (`ancien`, `nouveau`, `refresh` de cet appareil) : toutes les
+  sessions sont fermées, cet appareil reçoit de nouveaux jetons
+- `POST /api/auth/fermer-autres-sessions/` — « déconnecter mes autres appareils » (`refresh` de cet appareil)
+- `/api/comptes/` — personnel et comptes (PDG ; DRH si le règlement intérieur le permet) : liste, création (mot de passe
+  provisoire renvoyé une fois), fiche (`PATCH`), `POST /{id}/reinitialiser-mot-de-passe/` ; suspendre / réactiver (PDG)
+- `/api/configuration/mes-preferences/` (`GET`, `PATCH`) — préférences de chacun : mode vocal, son et notification des
+  alertes critiques
+
+Le jeton d'accès vaut toujours 30 minutes. Fermer les sessions d'un compte (mot de passe changé, autres appareils
+déconnectés) invalide aussitôt ses jetons, carte en temps réel comprise (voir `core/sessions.py`).
 
 ## Endpoints réseau
 
@@ -239,6 +253,13 @@ CRUD complet, isolé par compagnie (`IsSameCompany`) :
   la gare dont il est `chef`, pas les autres gares de sa compagnie
 - `/api/lignes/` — `gare_depart`/`gare_arrivee` doivent appartenir à la même compagnie
 - `/api/vehicules/`
+- `/api/quais/` (`?gare=<id>`) — quais d'embarquement d'une gare, tenus par les mêmes rôles que la gare
+- `GET /api/gares/chefs-possibles/` — chefs de gare de la compagnie et gare dirigée (direction)
+- `/api/compagnie/` (`GET`, `PATCH` par le PDG) — fiche de la compagnie : identité, coordonnées, mentions légales ;
+  `/api/compagnie/logo/` (`GET`, `POST` multipart `fichier`) et `POST /api/compagnie/logo/retirer/`
+
+Les fiches (coordonnées et horaires des gares, distance et durée des lignes, marque, modèle, année, classe et cartes des
+véhicules) sont facultatives et se tiennent depuis le site (menu « Paramètres »), sans l'administration Django.
 
 ## Entrées invalides et erreurs
 

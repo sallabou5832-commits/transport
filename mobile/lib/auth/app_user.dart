@@ -7,6 +7,7 @@ class AppUser {
     this.firstName = '',
     this.lastName = '',
     this.companyName,
+    this.doitChangerMotDePasse = false,
   });
 
   factory AppUser.fromJson(Map<String, dynamic> json) {
@@ -18,6 +19,7 @@ class AppUser {
       firstName: json['first_name'] as String? ?? '',
       lastName: json['last_name'] as String? ?? '',
       companyName: company is Map ? company['name'] as String? : null,
+      doitChangerMotDePasse: json['doit_changer_mot_de_passe'] as bool? ?? false,
     );
   }
 
@@ -27,6 +29,9 @@ class AppUser {
   final String firstName;
   final String lastName;
   final String? companyName;
+
+  /// Mot de passe provisoire (compte créé ou mot de passe réinitialisé) : à remplacer avant toute autre chose.
+  final bool doitChangerMotDePasse;
 
   String get displayName {
     final full = '$firstName $lastName'.trim();
@@ -41,5 +46,6 @@ class AppUser {
         'first_name': firstName,
         'last_name': lastName,
         'company': companyName == null ? null : {'name': companyName},
+        'doit_changer_mot_de_passe': doitChangerMotDePasse,
       };
 }

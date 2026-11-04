@@ -21,12 +21,35 @@ class Gare(models.Model):
     # Position pour la carte du réseau (facultative : une gare sans coordonnées n'apparaît pas sur la carte).
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    # Coordonnées et horaires d'ouverture au public (facultatifs). Une gare ouverte la nuit ferme avant d'ouvrir.
+    adresse = models.CharField(max_length=255, blank=True)
+    telephone = models.CharField(max_length=30, blank=True)
+    heure_ouverture = models.TimeField(null=True, blank=True)
+    heure_fermeture = models.TimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["nom"]
 
     def __str__(self):
         return f"{self.nom} ({self.company})"
+
+
+class Quai(models.Model):
+    """Un quai d'embarquement d'une gare (cahier des charges, n° 18 : rotation des quais). La gare déclare ses quais ; leur
+    affectation aux départs viendra avec l'exploitation."""
+
+    gare = models.ForeignKey(Gare, on_delete=models.CASCADE, related_name="quais")
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="quais")
+    nom = models.CharField(max_length=50)  # « Quai 1 », « A »…
+    # Un quai fermé (travaux, réservé) reste déclaré sans être proposé.
+    actif = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["gare__nom", "nom"]
+        constraints = [models.UniqueConstraint(fields=["gare", "nom"], name="quai_nom_unique_par_gare")]
+
+    def __str__(self):
+        return f"{self.nom} — {self.gare.nom}"
 
 
 class StatutLigne(models.TextChoices):
@@ -44,6 +67,9 @@ class Ligne(models.Model):
     tarif = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0.01"))]
     )
+    # Distance et durée de trajet prévues (facultatives), annoncées aux voyageurs et reprises plus tard pour l'heure d'arrivée.
+    distance_km = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    duree_prevue_minutes = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
     # Fermeture temporaire (PDG : « geler une ligne » ; directeur des opérations : fermer/rouvrir sur validation). Elle ne
     # se change que par `reseau.lignes`, jamais par une modification directe de la ligne.
     statut = models.CharField(max_length=10, choices=StatutLigne.choices, default=StatutLigne.OUVERTE)
@@ -72,6 +98,16 @@ class VehiculeStatut(models.TextChoices):
     BLOQUE_SECURITE = "bloque_securite", "Bloqué sécurité"
 
 
+class ClasseVehicule(models.TextChoices):
+    STANDARD = "standard", "Standard"
+    CLIMATISE = "climatise", "Climatisé"
+    VIP = "vip", "VIP"
+
+
+# Mise en circulation la plus ancienne acceptée : en deçà, c'est une erreur de saisie.
+ANNEE_CIRCULATION_MIN = 1950
+
+
 class Vehicule(models.Model):
     # Unique par compagnie, pas sur toute la plateforme : sinon une compagnie apprendrait, par le message d'erreur, qu'une
     # plaque existe chez une autre.
@@ -87,6 +123,18 @@ class Vehicule(models.Model):
     # Compteur kilométrique : c'est lui qui déclenche l'entretien préventif (un plan se déclare en jours ou en kilomètres).
     # Relevé par le technique (directeur technique, chef d'atelier), pas par les chauffeurs.
     kilometrage = models.PositiveIntegerField(default=0)
+    # Fiche du véhicule (facultative). L'année de mise en circulation donne l'âge du véhicule (le décret n° 2017-793 fixe des
+    # durées d'exploitation) ; la classe vide = non précisée.
+    marque = models.CharField(max_length=60, blank=True)
+    modele = models.CharField(max_length=60, blank=True)
+    annee_mise_en_circulation = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MinValueValidator(ANNEE_CIRCULATION_MIN)]
+    )
+    classe = models.CharField(max_length=10, choices=ClasseVehicule.choices, blank=True)
+    numero_carte_grise = models.CharField(max_length=40, blank=True)
+    # Carte de transport (autorisation du véhicule) : l'échéance est montrée, jamais imposée.
+    carte_transport_numero = models.CharField(max_length=40, blank=True)
+    carte_transport_echeance = models.DateField(null=True, blank=True)
 
     class Meta:
         ordering = ["immatriculation"]

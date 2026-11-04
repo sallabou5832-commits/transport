@@ -5,6 +5,7 @@ import Layout from '../components/Layout.jsx'
 import Alert from '../components/Alert.jsx'
 import Badge from '../components/Badge.jsx'
 import DossierSinistre from '../components/DossierSinistre.jsx'
+import EchangesTutelle from '../components/EchangesTutelle.jsx'
 import Kpi from '../components/Kpi.jsx'
 import LitigesSociaux from '../components/LitigesSociaux.jsx'
 import ModelesJuridiquesGestion from '../components/ModelesJuridiquesGestion.jsx'
@@ -29,6 +30,7 @@ const ONGLETS = [
   { id: 'litiges', label: 'Litiges sociaux' },
   { id: 'modeles', label: 'Modèles de documents' },
   { id: 'synthese', label: 'Synthèse pour la Direction' },
+  { id: 'tutelle', label: 'Tutelle' },
 ]
 
 function etatAssurance(assurance) {
@@ -80,6 +82,12 @@ export default function JuridiqueDashboard() {
       () => apiFetch(`/assurances/${assurance.id}/`, { method: 'PATCH', body: { date_echeance: date } }),
       `Police ${assurance.numero_police} renouvelée jusqu'au ${formatDate(date)}.`,
     )
+  }
+
+  function supprimer(chemin, libelle) {
+    // Pour une saisie erronée : une assurance ou un sinistre encore lié à d'autres données se garde (le serveur dit pourquoi).
+    if (!window.confirm(`Supprimer ${libelle} ?`)) return
+    agir(() => apiFetch(chemin, { method: 'DELETE' }), `${libelle.charAt(0).toUpperCase()}${libelle.slice(1)} supprimé(e).`)
   }
 
   async function creerAssurance(event) {
@@ -198,6 +206,14 @@ export default function JuridiqueDashboard() {
                         >
                           Renouveler
                         </button>
+                        <button
+                          type="button"
+                          className="button-small button-secondary"
+                          disabled={envoi}
+                          onClick={() => supprimer(`/assurances/${assurance.id}/`, `la police ${assurance.numero_police}`)}
+                        >
+                          Supprimer
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -270,6 +286,20 @@ export default function JuridiqueDashboard() {
                         >
                           {sinistreOuvert === sinistre.id ? 'Fermer' : `Pièces (${sinistre.pieces_total})`}
                         </button>
+                        {/* Un dossier qui a des pièces jointes se garde : le supprimer effacerait aussi ses pièces. */}
+                        {sinistre.pieces_total === 0 && (
+                          <>
+                            {' '}
+                            <button
+                              type="button"
+                              className="button-secondary button-small"
+                              disabled={envoi}
+                              onClick={() => supprimer(`/sinistres/${sinistre.id}/`, `le sinistre n° ${sinistre.id}`)}
+                            >
+                              Supprimer
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   )
@@ -392,6 +422,7 @@ export default function JuridiqueDashboard() {
       {onglet === 'litiges' && <LitigesSociaux />}
       {onglet === 'modeles' && <ModelesJuridiquesGestion />}
       {onglet === 'synthese' && <ReportingJuridique />}
+      {onglet === 'tutelle' && <EchangesTutelle />}
     </Layout>
   )
 }

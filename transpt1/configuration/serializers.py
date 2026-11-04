@@ -1,9 +1,9 @@
 from rest_framework import serializers
 
 from configuration import regles
-from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste
-from configuration.regles import NiveauAutomatisation, NiveauGamification
-from configuration.services import cadre_de
+from configuration.models import ConfigurationAgent, ConfigurationCompagnie, ConfigurationPoste, PreferencePersonnelle
+from configuration.regles import DureeSession, NiveauAutomatisation, NiveauGamification
+from configuration.services import cadre_de, vocal_impose_pour
 from core.models import Role
 from core.serializers import nom_complet
 
@@ -24,6 +24,16 @@ def _verifier_niveaux(attrs, company_id):
         raise serializers.ValidationError(erreurs)
 
 
+def _verifier_duree_session(attrs, company_id):
+    """Un poste peut voir sa durée de session réduite, jamais allongée au-delà du plafond de la compagnie."""
+    duree = attrs.get("duree_session_max")
+    cadre = ConfigurationCompagnie.objects.filter(company_id=company_id).first()
+    plafond = cadre.duree_session_max if cadre is not None else DureeSession.PLAFOND_PAR_DEFAUT
+    if duree and regles.rang(duree, DureeSession.ORDRE) > regles.rang(plafond, DureeSession.ORDRE):
+        libelle = dict(DureeSession.CHOIX)[plafond].lower()
+        raise serializers.ValidationError({"duree_session_max": f"Le cadre de la compagnie plafonne les sessions à « {libelle} »."})
+
+
 def _verifier_fonctions(valeur):
     if not isinstance(valeur, list):
         raise serializers.ValidationError("Liste de fonctions attendue.")
@@ -38,7 +48,7 @@ def _verifier_fonctions(valeur):
 class CadreCompagnieSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConfigurationCompagnie
-        fields = ["automatisation_max", "gamification_max", "modifie_le"]
+        fields = ["automatisation_max", "gamification_max", "duree_session_max", "code_court_exige", "modifie_le"]
         read_only_fields = ["modifie_le"]
 
 
@@ -49,13 +59,14 @@ class ConfigurationPosteSerializer(serializers.ModelSerializer):
         model = ConfigurationPoste
         fields = [
             "role", "role_libelle", "niveau_automatisation", "niveau_gamification", "fonctions_desactivees",
-            "prefere_vocal", "modifie_le",
+            "prefere_vocal", "prefere_vocal_impose", "duree_session_max", "modifie_le",
         ]
         read_only_fields = ["role", "modifie_le"]
-        # Une valeur vide laisse le défaut du socle.
+        # Une valeur vide laisse le défaut du socle (pour la durée de session : le plafond de la compagnie).
         extra_kwargs = {
             "niveau_automatisation": {"required": False, "allow_null": True},
             "niveau_gamification": {"required": False, "allow_null": True},
+            "duree_session_max": {"required": False, "allow_null": True},
         }
 
     def get_role_libelle(self, obj):
@@ -66,6 +77,7 @@ class ConfigurationPosteSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         _verifier_niveaux(attrs, self.context["request"].user.company_id)
+        _verifier_duree_session(attrs, self.context["request"].user.company_id)
         return attrs
 
 
@@ -78,7 +90,7 @@ class ConfigurationAgentSerializer(serializers.ModelSerializer):
         model = ConfigurationAgent
         fields = [
             "agent", "agent_nom", "agent_role", "niveau_automatisation", "niveau_gamification",
-            "fonctions_desactivees", "prefere_vocal", "aisance_numerique", "modifie_le",
+            "fonctions_desactivees", "prefere_vocal", "prefere_vocal_impose", "aisance_numerique", "modifie_le",
         ]
         read_only_fields = ["modifie_le"]
         extra_kwargs = {
@@ -96,3 +108,24 @@ class ConfigurationAgentSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         _verifier_niveaux(attrs, self.context["request"].user.company_id)
         return attrs
+
+
+class PreferencePersonnelleSerializer(serializers.ModelSerializer):
+    """Mes préférences (`/configuration/mes-preferences/`). `vocal_impose` : le supérieur a fixé le mode vocal, l'agent ne le
+    choisit pas."""
+
+    vocal_impose = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PreferencePersonnelle
+        fields = ["prefere_vocal", "son_alertes", "notifications_navigateur", "vocal_impose", "modifie_le"]
+        read_only_fields = ["modifie_le"]
+        extra_kwargs = {"prefere_vocal": {"required": False, "allow_null": True}}
+
+    def get_vocal_impose(self, obj):
+        return vocal_impose_pour(self.context["request"].user)
+
+    def validate_prefere_vocal(self, valeur):
+        if valeur is not None and vocal_impose_pour(self.context["request"].user):
+            raise serializers.ValidationError("Votre supérieur a fixé le mode vocal pour vous : il ne se change pas ici.")
+        return valeur

@@ -6,9 +6,12 @@ import '../auth/roles.dart';
 import '../data/quota_service.dart';
 import '../services.dart';
 import '../sync/sync_service.dart';
+import 'charte.dart';
 import 'chauffeur_home.dart';
 import 'generic_home.dart';
 import 'guichetier_home.dart';
+import 'guide_screen.dart';
+import 'mes_parametres_screen.dart';
 import 'sync_status_bar.dart';
 
 /// Écran d'accueil : le contenu dépend du rôle de l'utilisateur connecté.
@@ -66,7 +69,28 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Accueil'),
+        // Le liseré de la couleur du pôle de l'agent, comme sur le site.
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(4),
+          child: Container(key: const Key('lisere-pole'), height: 4, color: Charte.couleurDuPole(user.role)),
+        ),
         actions: [
+          IconButton(
+            key: const Key('guide'),
+            tooltip: 'Guide',
+            icon: const Icon(Icons.menu_book_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GuideScreen()),
+            ),
+          ),
+          IconButton(
+            key: const Key('mes-parametres'),
+            tooltip: 'Mes paramètres',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MesParametresScreen()),
+            ),
+          ),
           IconButton(
             key: const Key('logout'),
             tooltip: 'Se déconnecter',

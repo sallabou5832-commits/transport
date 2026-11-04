@@ -1,5 +1,6 @@
 // Scénarios de bout en bout. Chaque scénario reçoit le contexte de run.mjs et lève une erreur au premier écart.
 // Un scénario se joue avec de vrais comptes de démonstration (transpt1/*/management/commands/seed_demo_*.py).
+import fs from 'node:fs'
 import path from 'node:path'
 import comptes from './comptes.json' with { type: 'json' }
 import { executer } from './lib.mjs'
@@ -1350,6 +1351,769 @@ export const scenarios = [
         return details
       } finally {
         for (const session of sessions) await session.fermer()
+      }
+    },
+  },
+  {
+    nom: "paramètres : la compagnie se configure sans l'administration Django (fiche et logo, gare et quais, ligne et tarif, véhicule)",
+    async jouer(ctx) {
+      const details = []
+      const bloc = (page, contenu) => page.locator('section.card', { has: contenu })
+      const iso = (decalage) => new Date(Date.now() + decalage * 86400000).toISOString().slice(0, 10)
+      const ouvrirParametre = async (page, libelle, chemin) => {
+        await page.locator('.topbar-menu summary').click()
+        await page.locator('.topbar-menu').getByRole('link', { name: libelle }).click()
+        await page.waitForURL(`**${chemin}`)
+        await attendreCalme(page)
+      }
+      const pdg = await connecter(ctx, 'pdg_stc')
+      const dirops = await connecter(ctx, 'directeur_exploitation_stc')
+      const chefLigne = await connecter(ctx, 'chef_ligne_stc')
+      const dt = await connecter(ctx, 'directeur_technique_stc')
+      const chef = await connecter(ctx, 'chef_gare_stc')
+      const sessions = [pdg, dirops, chefLigne, dt, chef]
+      try {
+        // 1. Le PDG remplit la fiche de sa compagnie, puis envoie son logo (une vraie image PNG d'un pixel).
+        await pdg.page.waitForURL('**/dashboard/direction')
+        await attendreCalme(pdg.page)
+        await ouvrirParametre(pdg.page, 'Ma compagnie', '/compagnie')
+        await pdg.page.getByLabel('Sigle').fill('STC')
+        await pdg.page.getByLabel('Téléphone du service client').fill('07 07 00 00 00')
+        await pdg.page.getByLabel('RCCM').fill('CI-ABJ-2005-B-12345')
+        await pdg.page.getByLabel("Échéance de l'autorisation").fill(iso(30))
+        await pdg.page.getByRole('button', { name: 'Enregistrer la fiche' }).click()
+        await pdg.page.getByText('Fiche de la compagnie enregistrée.').waitFor({ timeout: 10000 })
+        await pdg.page.getByText(/Échéance dans (29|30) j/).waitFor({ timeout: 10000 })
+        const logo = path.join(ctx.CAPTURES, 'logo-essai.png')
+        fs.writeFileSync(logo, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64'))
+        await pdg.page.locator('input[type=file]').setInputFiles(logo)
+        await pdg.page.getByRole('button', { name: 'Envoyer le logo' }).click()
+        await pdg.page.getByText('Logo enregistré.').waitFor({ timeout: 10000 })
+        await pdg.page.getByAltText('Logo de la compagnie').waitFor({ timeout: 10000 })
+        await pdg.page.waitForFunction(() => document.querySelector('img.logo-apercu')?.naturalWidth > 0, null, { timeout: 10000 })
+        await capturer(ctx, pdg.page, 'parametres-1-compagnie')
+        details.push('PDG : fiche (sigle, téléphone, RCCM, échéance rappelée) et logo affiché')
+
+        // 2. Le directeur des opérations crée une gare, ouvre sa fiche et lui déclare un quai.
+        await dirops.page.waitForURL('**/dashboard/exploitation')
+        await attendreCalme(dirops.page)
+        await ouvrirParametre(dirops.page, 'Gares et quais', '/gares')
+        const nouvelle = bloc(dirops.page, dirops.page.getByRole('heading', { name: 'Nouvelle gare', exact: true }))
+        await nouvelle.getByLabel('Nom de la gare').fill('Gare San-Pédro')
+        await nouvelle.getByLabel('Ville').fill('San-Pédro')
+        await nouvelle.getByLabel('Téléphone').fill('0707000011')
+        await nouvelle.getByLabel('Ouverture').fill('05:00')
+        await nouvelle.getByLabel('Fermeture').fill('21:00')
+        await nouvelle.getByRole('button', { name: 'Créer la gare' }).click()
+        await dirops.page.getByText('Gare « Gare San-Pédro » créée.').waitFor({ timeout: 10000 })
+        const rangGare = dirops.page.locator('tr', { hasText: 'Gare San-Pédro' })
+        await rangGare.getByText('05:00 – 21:00').waitFor({ timeout: 10000 })
+        await rangGare.getByRole('button', { name: 'Modifier' }).click()
+        await dirops.page.getByLabel('Nouveau quai').fill('Quai 1')
+        await dirops.page.getByRole('button', { name: 'Ajouter le quai' }).click()
+        await dirops.page.getByText('Quai « Quai 1 » ajouté.').waitFor({ timeout: 10000 })
+        await rangGare.getByText('1 ouvert(s)').waitFor({ timeout: 10000 })
+        await capturer(ctx, dirops.page, 'parametres-2-gares')
+        details.push('directeur des opérations : gare créée (horaires), quai déclaré')
+
+        // 3. Le chef de ligne ouvre la ligne vers cette gare, avec son tarif, sa distance et sa durée.
+        await chefLigne.page.waitForURL('**/dashboard/ligne')
+        await attendreCalme(chefLigne.page)
+        await ouvrirParametre(chefLigne.page, 'Lignes et tarifs', '/lignes')
+        const nouvelleLigne = bloc(chefLigne.page, chefLigne.page.getByRole('heading', { name: 'Nouvelle ligne', exact: true }))
+        await nouvelleLigne.getByLabel('Gare de départ').selectOption({ label: 'Gare Adjamé' })
+        await nouvelleLigne.getByLabel("Gare d'arrivée").selectOption({ label: 'Gare San-Pédro' })
+        const nomPropose = await nouvelleLigne.getByLabel('Nom de la ligne').inputValue()
+        if (nomPropose !== 'Gare Adjamé – Gare San-Pédro') throw new Error(`nom de ligne proposé inattendu : « ${nomPropose} »`)
+        await nouvelleLigne.getByLabel('Tarif (FCFA)').fill('5000')
+        await nouvelleLigne.getByLabel('Distance (km)').fill('340')
+        await nouvelleLigne.getByLabel('Durée prévue (heures)').fill('5')
+        await nouvelleLigne.getByLabel('(minutes)').fill('15')
+        await nouvelleLigne.getByRole('button', { name: 'Créer la ligne' }).click()
+        await chefLigne.page.getByText('Ligne « Gare Adjamé – Gare San-Pédro » créée.').waitFor({ timeout: 10000 })
+        const rangLigne = chefLigne.page.locator('tr', { hasText: 'Gare Adjamé – Gare San-Pédro' })
+        await rangLigne.getByText('5 h 15').waitFor({ timeout: 10000 })
+        await rangLigne.getByText(/5\s000 FCFA/).waitFor()
+        await capturer(ctx, chefLigne.page, 'parametres-3-lignes')
+        details.push('chef de ligne : ligne créée, nom proposé, tarif 5 000 FCFA, 340 km, 5 h 15')
+
+        // 4. Le directeur technique ajoute un car au parc ; sa carte de transport expirée est rappelée (rien n'est bloqué).
+        await dt.page.waitForURL('**/dashboard/technique')
+        await attendreCalme(dt.page)
+        await ouvrirParametre(dt.page, 'Véhicules', '/vehicules')
+        const nouveau = bloc(dt.page, dt.page.getByRole('heading', { name: 'Nouveau véhicule', exact: true }))
+        await nouveau.getByLabel('Immatriculation').fill('CI-3003-EF')
+        await nouveau.getByLabel('Places').fill('55')
+        await nouveau.getByLabel('Marque').fill('Yutong')
+        await nouveau.getByLabel('Modèle').fill('ZK6122')
+        await nouveau.getByLabel('Mise en circulation (année)').fill('2020')
+        await nouveau.getByLabel('Classe').selectOption('climatise')
+        await nouveau.getByLabel('Échéance de la carte de transport').fill(iso(-10))
+        await nouveau.getByRole('button', { name: 'Ajouter au parc' }).click()
+        await dt.page.getByText('Véhicule CI-3003-EF ajouté au parc.').waitFor({ timeout: 10000 })
+        const rangCar = dt.page.locator('tr', { hasText: 'CI-3003-EF' })
+        await rangCar.getByText('Yutong ZK6122').waitFor({ timeout: 10000 })
+        await rangCar.getByText(/Expirée depuis (10|11) j/).waitFor()
+        await rangCar.getByText('Disponible').waitFor()
+        await capturer(ctx, dt.page, 'parametres-4-vehicules')
+        details.push('directeur technique : car ajouté (Yutong 2020, climatisé), carte de transport expirée rappelée')
+
+        // 5. Le chef de gare tient la fiche de SA gare depuis son tableau de bord ; son menu Paramètres n'a que les siens.
+        await chef.page.waitForURL('**/dashboard/gare')
+        await attendreCalme(chef.page)
+        const liensChef = await chef.page.locator('.topbar-menu-liste a').allTextContents()
+        if (liensChef.join('|') !== 'Mes paramètres') throw new Error(`menu Paramètres du chef de gare : ${liensChef.join(', ')}`)
+        const fiche = bloc(chef.page, chef.page.getByRole('heading', { name: 'Quais de Gare Adjamé' }))
+        await fiche.getByLabel('Téléphone').fill('0707070799')
+        await fiche.getByRole('button', { name: 'Enregistrer la fiche' }).click()
+        await chef.page.getByText('Fiche de la gare Gare Adjamé enregistrée.').waitFor({ timeout: 10000 })
+        await fiche.getByLabel('Nouveau quai').fill('Quai 4')
+        await fiche.getByRole('button', { name: 'Ajouter le quai' }).click()
+        await chef.page.getByText('Quai « Quai 4 » ajouté.').waitFor({ timeout: 10000 })
+        await capturer(ctx, chef.page, 'parametres-5-chef-de-gare')
+        details.push('chef de gare : téléphone de sa gare et nouveau quai, menu Paramètres réduit à « Mes paramètres »')
+
+        const problemes = sessions.flatMap((s) => s.problemes)
+        if (problemes.length) throw new Error([...new Set(problemes)].join(' ; '))
+        return details
+      } finally {
+        for (const session of sessions) await session.fermer()
+      }
+    },
+  },
+  {
+    nom: 'accès : rester connecté sous le plafond du PDG, mot de passe changé, autres appareils déconnectés',
+    async jouer(ctx) {
+      const details = []
+      const agent = 'chauffeur_libre_stc'
+      const NOUVEAU = 'Lagune-Ebrie-2026'
+      const renouveler = (refresh) =>
+        fetch(`${ctx.URL_API}/auth/refresh/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh }),
+        })
+      const autreAppareil = async (motDePasse) => {
+        const reponse = await fetch(`${ctx.URL_API}/auth/login/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: agent, password: motDePasse }),
+        })
+        if (!reponse.ok) throw new Error(`connexion de l'autre appareil refusée (${reponse.status})`)
+        return reponse.json()
+      }
+      const pdg = await connecter(ctx, 'pdg_stc')
+      let contexte = null
+      try {
+        // 1. Le PDG plafonne les sessions de sa compagnie à 7 jours (cadre de la compagnie).
+        await pdg.page.waitForURL('**/dashboard/direction')
+        await attendreCalme(pdg.page)
+        await pdg.page.getByRole('link', { name: 'Cadre de la compagnie' }).click()
+        await pdg.page.waitForURL('**/cadre')
+        await attendreCalme(pdg.page)
+        await pdg.page.getByLabel('Session la plus longue').selectOption('semaine')
+        await pdg.page.getByText('Cadre mis à jour').waitFor({ timeout: 10000 })
+        await capturer(ctx, pdg.page, 'acces-1-plafond')
+        details.push('PDG : sessions plafonnées à 7 jours')
+
+        // 2. L'agent se connecte en cochant « Rester connecté » jusqu'à la déconnexion : la session est ramenée à 7 jours.
+        contexte = await ctx.chrome.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR' })
+        const page = await contexte.newPage()
+        const problemes = []
+        page.on('pageerror', (erreur) => problemes.push(`erreur JavaScript : ${erreur.message}`))
+        page.on('console', (message) => message.type() === 'error' && problemes.push(`console : ${message.text()}`))
+        page.on('response', (r) => {
+          if (r.status() >= 400 && r.url().startsWith(ctx.URL_API)) problemes.push(`HTTP ${r.status()} ${r.url().replace(ctx.URL_API, '')}`)
+        })
+        await page.goto(`${ctx.URL_WEB}/login`)
+        await page.getByLabel('Identifiant').fill(agent)
+        await page.getByLabel('Mot de passe').fill('Demo!2024')
+        await page.getByLabel('Rester connecté').check()
+        await page.getByLabel('Pendant').selectOption('deconnexion')
+        await page.getByRole('button', { name: 'Se connecter' }).click()
+        await page.waitForURL('**/dashboard/chauffeur')
+        await attendreCalme(page)
+        await page.locator('.topbar-menu summary').click()
+        await page.locator('.topbar-menu').getByRole('link', { name: 'Mes paramètres' }).click()
+        await page.waitForURL('**/parametres')
+        await attendreCalme(page)
+        await page.getByText('(7 jours)').waitFor({ timeout: 10000 })
+        await page.getByText('Durée la plus longue permise pour votre poste : 7 jours.').waitFor()
+        details.push('agent : « rester connecté » demandé jusqu’à la déconnexion, accordé pour 7 jours')
+
+        // 3. Il change son mot de passe : son autre appareil est déconnecté, celui-ci reste connecté.
+        const autre = await autreAppareil('Demo!2024')
+        await page.getByLabel('Mot de passe actuel').fill('Demo!2024')
+        await page.getByLabel('Nouveau mot de passe').fill(NOUVEAU)
+        await page.getByLabel('Confirmation').fill(NOUVEAU)
+        await page.getByRole('button', { name: 'Changer le mot de passe' }).click()
+        await page.getByText('Mot de passe changé.', { exact: false }).waitFor({ timeout: 10000 })
+        if ((await renouveler(autre.refresh)).status !== 401) throw new Error("l'autre appareil n'a pas été déconnecté")
+        await page.reload()
+        await attendreCalme(page)
+        await page.getByText('(7 jours)').waitFor({ timeout: 10000 })
+        await capturer(ctx, page, 'acces-2-mot-de-passe')
+        details.push('mot de passe changé : autre appareil refusé (401), cet appareil toujours connecté (7 jours)')
+
+        // 4. « Déconnecter mes autres appareils » : une nouvelle session ailleurs est fermée, celle-ci continue.
+        const ailleurs = await autreAppareil(NOUVEAU)
+        await page.getByRole('button', { name: 'Déconnecter mes autres appareils' }).click()
+        await page.getByText('Vos autres appareils sont déconnectés.', { exact: false }).waitFor({ timeout: 10000 })
+        if ((await renouveler(ailleurs.refresh)).status !== 401) throw new Error("l'autre session n'a pas été fermée")
+        await page.reload()
+        await attendreCalme(page)
+        await page.getByRole('heading', { name: 'Session' }).waitFor()
+        details.push('autres appareils déconnectés, celui-ci reste connecté')
+
+        if (problemes.length || pdg.problemes.length) throw new Error([...new Set([...problemes, ...pdg.problemes])].join(' ; '))
+        return details
+      } finally {
+        // Les autres scénarios se connectent avec le mot de passe de démonstration et sans plafond : on rend tout tel quel.
+        const session = await autreAppareil(NOUVEAU).catch(() => null)
+        if (session) {
+          await fetch(`${ctx.URL_API}/auth/mot-de-passe/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access}` },
+            body: JSON.stringify({ ancien: NOUVEAU, nouveau: 'Demo!2024', refresh: session.refresh }),
+          })
+        }
+        await api(ctx, 'pdg_stc', '/configuration/compagnie/', { method: 'PATCH', body: { duree_session_max: 'deconnexion' } })
+        if (contexte) await contexte.close()
+        await pdg.fermer()
+      }
+    },
+  },
+  {
+    nom: 'personnel : le PDG crée un compte, l’agent remplace son mot de passe provisoire, réinitialisation, DRH selon le règlement',
+    async jouer(ctx) {
+      const details = []
+      const ouvrirParametre = async (page, libelle, chemin) => {
+        await page.locator('.topbar-menu summary').click()
+        await page.locator('.topbar-menu').getByRole('link', { name: libelle }).click()
+        await page.waitForURL(`**${chemin}`)
+        await attendreCalme(page)
+      }
+      const NOUVEAU = 'Plateau-Dokui-2026'
+      const pdg = await connecter(ctx, 'pdg_stc')
+      // Par défaut, le DRH ne gère pas les comptes : la page affiche le refus du serveur (403 attendu, une fois).
+      const drh = await connecter(ctx, 'drh_stc', { ignorer: [/HTTP 403 GET \/comptes\//, /status of 403/] })
+      let agent = null
+      try {
+        // 1. Le PDG crée le compte d'une guichetière : identifiant proposé, gare, matricule, dossier ouvert.
+        await pdg.page.waitForURL('**/dashboard/direction')
+        await attendreCalme(pdg.page)
+        await ouvrirParametre(pdg.page, 'Personnel et comptes', '/personnel')
+        const nouveau = pdg.page.locator('section.card', { has: pdg.page.getByRole('heading', { name: 'Nouveau compte' }) })
+        await nouveau.getByLabel('Prénom').fill('Mariam')
+        await nouveau.getByLabel('Nom', { exact: true }).fill('Touré')
+        const identifiant = await nouveau.getByLabel('Identifiant de connexion').inputValue()
+        if (identifiant !== 'mariam.toure') throw new Error(`identifiant proposé inattendu : « ${identifiant} »`)
+        await nouveau.getByLabel('Poste').selectOption('guichetier')
+        await nouveau.getByRole('combobox', { name: /^Gare/ }).selectOption({ label: 'Gare Adjamé' })
+        await nouveau.getByLabel('Téléphone').fill('0707123456')
+        await nouveau.getByLabel('Matricule').fill('STC-E2E-1')
+        await nouveau.getByLabel("Date d'embauche (ouvre le dossier agent)").fill(new Date().toISOString().slice(0, 10))
+        await nouveau.getByRole('button', { name: 'Créer le compte' }).click()
+        const provisoire = (await pdg.page.locator('code.mot-de-passe-provisoire').textContent({ timeout: 10000 })).trim()
+        if (!/^[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}$/.test(provisoire)) throw new Error(`mot de passe provisoire : « ${provisoire} »`)
+        const rang = pdg.page.locator('tr', { hasText: 'mariam.toure' })
+        await rang.getByText('Mot de passe provisoire').waitFor({ timeout: 10000 })
+        await rang.getByText('Gare Adjamé').waitFor()
+        await capturer(ctx, pdg.page, 'personnel-1-creation')
+        details.push('PDG : compte créé (identifiant proposé, gare, matricule, dossier), mot de passe provisoire montré une fois')
+
+        // 2. La guichetière se connecte : elle ne peut que choisir son mot de passe, puis arrive sur son espace.
+        agent = await ctx.chrome.newContext({ viewport: { width: 1280, height: 900 }, locale: 'fr-FR' })
+        const page = await agent.newPage()
+        const problemes = []
+        page.on('pageerror', (erreur) => problemes.push(`erreur JavaScript : ${erreur.message}`))
+        page.on('console', (message) => message.type() === 'error' && problemes.push(`console : ${message.text()}`))
+        page.on('response', (r) => {
+          if (r.status() >= 400 && r.url().startsWith(ctx.URL_API)) problemes.push(`HTTP ${r.status()} ${r.url().replace(ctx.URL_API, '')}`)
+        })
+        await page.goto(`${ctx.URL_WEB}/login`)
+        await page.getByLabel('Identifiant').fill('mariam.toure')
+        await page.getByLabel('Mot de passe').fill(provisoire)
+        await page.getByRole('button', { name: 'Se connecter' }).click()
+        await page.waitForURL('**/parametres')
+        await page.getByText('Votre mot de passe est provisoire.').waitFor({ timeout: 10000 })
+        if (await page.locator('.topbar-nav').count()) throw new Error('un compte au mot de passe provisoire voit les menus')
+        await page.getByLabel('Mot de passe provisoire').fill(provisoire)
+        await page.getByLabel('Nouveau mot de passe').fill(NOUVEAU)
+        await page.getByLabel('Confirmation').fill(NOUVEAU)
+        await page.getByRole('button', { name: 'Changer le mot de passe' }).click()
+        await page.waitForURL('**/dashboard/guichetier', { timeout: 15000 })
+        await attendreCalme(page)
+        await capturer(ctx, page, 'personnel-2-premiere-connexion')
+        if (problemes.length) throw new Error([...new Set(problemes)].join(' ; '))
+        details.push('guichetière : mot de passe provisoire remplacé à la première connexion, puis son tableau de bord')
+
+        // 3. Elle l'oublie : le PDG le réinitialise ; l'ancien ne vaut plus, un nouveau provisoire est montré.
+        await pdg.page.reload()
+        await attendreCalme(pdg.page)
+        await rang.getByText('Actif').waitFor({ timeout: 10000 })
+        pdg.page.once('dialog', (dialogue) => dialogue.accept())
+        await rang.getByRole('button', { name: 'Réinitialiser le mot de passe' }).click()
+        await pdg.page.getByRole('heading', { name: 'Mot de passe provisoire de Mariam Touré' }).waitFor({ timeout: 10000 })
+        const refus = await fetch(`${ctx.URL_API}/auth/login/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: 'mariam.toure', password: NOUVEAU }),
+        })
+        if (refus.status !== 401) throw new Error(`l'ancien mot de passe vaut encore (${refus.status})`)
+        details.push('PDG : mot de passe réinitialisé, l’ancien refusé')
+
+        // 4. Le DRH : refus par défaut (règlement intérieur), puis le PDG lui confie les comptes depuis le cadre.
+        await drh.page.waitForURL('**/dashboard/rh')
+        await attendreCalme(drh.page)
+        await ouvrirParametre(drh.page, 'Personnel et comptes', '/personnel')
+        await drh.page.getByText('réserve la gestion des comptes au PDG').waitFor({ timeout: 10000 })
+        await pdg.page.getByRole('navigation').getByRole('link', { name: 'Cadre de la compagnie' }).click()
+        await pdg.page.waitForURL('**/cadre')
+        await attendreCalme(pdg.page)
+        await pdg.page.getByLabel('Le DRH crée et modifie aussi les comptes du personnel').check()
+        await pdg.page.getByText('Le DRH gère désormais aussi les comptes du personnel.').waitFor({ timeout: 10000 })
+        await drh.page.reload()
+        await attendreCalme(drh.page)
+        await drh.page.locator('tr', { hasText: 'mariam.toure' }).waitFor({ timeout: 10000 })
+        await capturer(ctx, drh.page, 'personnel-3-drh')
+        details.push('DRH : refus par défaut, puis la liste une fois la gestion des comptes confiée par le PDG')
+
+        const restants = [...pdg.problemes, ...drh.problemes]
+        if (restants.length) throw new Error([...new Set(restants)].join(' ; '))
+        return details
+      } finally {
+        await api(ctx, 'pdg_stc', '/configuration/reglement/', { method: 'PATCH', body: { drh_gere_les_comptes: false } })
+        if (agent) await agent.close()
+        await pdg.fermer()
+        await drh.fermer()
+      }
+    },
+  },
+  {
+    nom: 'pièces : le magasinier crée une pièce, reçoit une livraison (coût moyen), fait l’inventaire avec un écart motivé',
+    async jouer(ctx) {
+      const details = []
+      const bloc = (page, titre) => page.locator('section.card', { has: page.getByRole('heading', { name: titre, exact: true }) })
+      const magasinier = await connecter(ctx, 'magasinier_stc')
+      try {
+        await magasinier.page.waitForURL('**/dashboard/magasinier')
+        await attendreCalme(magasinier.page)
+        await magasinier.page.locator('.topbar-menu summary').click()
+        await magasinier.page.locator('.topbar-menu').getByRole('link', { name: 'Pièces et stock' }).click()
+        await magasinier.page.waitForURL('**/pieces')
+        await attendreCalme(magasinier.page)
+        const page = magasinier.page
+
+        // 1. Nouvelle pièce au catalogue : 2 en stock, seuil 3, 15 000 FCFA, fournisseur et emplacement.
+        const nouvelle = bloc(page, 'Nouvelle pièce')
+        await nouvelle.getByLabel('Désignation').fill('Plaquette de frein avant')
+        await nouvelle.getByLabel('Référence').fill('PF-E2E-1')
+        await nouvelle.getByLabel('Stock de départ').fill('2')
+        await nouvelle.getByLabel("Seuil d'alerte").fill('3')
+        await nouvelle.getByLabel('Prix unitaire (FCFA)').fill('15000')
+        await nouvelle.getByLabel('Fournisseur habituel').fill('CFAO Motors')
+        await nouvelle.getByLabel('Emplacement au magasin').fill('Rayon B2')
+        await nouvelle.getByRole('button', { name: 'Ajouter au catalogue' }).click()
+        await page.getByText('Pièce « Plaquette de frein avant » ajoutée au catalogue.').waitFor({ timeout: 10000 })
+        const rang = page.locator('tr', { hasText: 'PF-E2E-1' })
+        await rang.getByText('Rayon B2').waitFor({ timeout: 10000 })
+        details.push('pièce créée : 2 en stock (sous le seuil de 3), 15 000 FCFA, CFAO Motors, rayon B2')
+
+        // 2. Réception de 10 à 18 000 FCFA : 12 en stock, prix = (2 × 15 000 + 10 × 18 000) / 12 = 17 500.
+        const reception = bloc(page, 'Réception')
+        await reception.getByLabel('Pièce').selectOption({ label: 'Plaquette de frein avant (PF-E2E-1) — 2 en stock' })
+        const fournisseur = await reception.getByLabel('Fournisseur').inputValue()
+        if (fournisseur !== 'CFAO Motors') throw new Error(`fournisseur proposé : « ${fournisseur} »`)
+        await reception.getByLabel('Quantité reçue').fill('10')
+        await reception.getByLabel('Prix unitaire payé (FCFA)').fill('18000')
+        await reception.getByLabel('N° du bon de livraison ou de la facture').fill('BL-2026-114')
+        await reception.getByRole('button', { name: 'Enregistrer la réception' }).click()
+        await page.getByText('Réception enregistrée : 10 × Plaquette de frein avant.').waitFor({ timeout: 10000 })
+        await rang.getByText(/17\s500 FCFA/).waitFor({ timeout: 10000 })
+        await rang.getByText(/210\s000 FCFA/).waitFor()
+        details.push('réception de 10 : 12 en stock, coût moyen 17 500 FCFA, valeur 210 000 FCFA')
+
+        // 3. Inventaire : 11 comptées, écart −1 ; le motif est exigé.
+        const inventaire = bloc(page, 'Inventaire')
+        await inventaire.getByLabel('Pièce').selectOption({ label: 'Plaquette de frein avant (PF-E2E-1) — 12 en stock' })
+        await inventaire.getByLabel('Quantité comptée').fill('11')
+        await inventaire.getByText('Attendu : 12 — écart : -1').waitFor()
+        await inventaire.getByLabel("Motif de l'écart").fill('Une plaquette fêlée, mise au rebut')
+        await inventaire.getByRole('button', { name: 'Enregistrer le comptage' }).click()
+        await page.getByText('Inventaire de « Plaquette de frein avant » enregistré (écart -1).').waitFor({ timeout: 10000 })
+        await rang.getByText(/192\s500 FCFA/).waitFor({ timeout: 10000 })
+        details.push('inventaire : 11 comptées, écart −1 motivé, valeur ramenée à 192 500 FCFA')
+
+        // 4. L'historique de la pièce : la réception et l'inventaire, avec qui et pourquoi.
+        await rang.getByRole('button', { name: 'Mouvements' }).click()
+        const historique = bloc(page, 'Mouvements de Plaquette de frein avant')
+        await historique.getByText('BL-2026-114', { exact: false }).waitFor({ timeout: 10000 })
+        await historique.getByText('Une plaquette fêlée, mise au rebut', { exact: false }).waitFor()
+        await capturer(ctx, page, 'pieces-1-stock')
+        details.push('historique : réception (bon BL-2026-114) et inventaire (motif)')
+
+        const alertes = await api(ctx, 'directeur_technique_stc', '/alertes/')
+        const liste = alertes.alertes
+        if (!liste.some((a) => a.titre === "Écart d'inventaire : Plaquette de frein avant")) {
+          throw new Error("le directeur technique n'a pas reçu l'écart d'inventaire")
+        }
+        details.push('directeur technique prévenu de l’écart')
+
+        if (magasinier.problemes.length) throw new Error([...new Set(magasinier.problemes)].join(' ; '))
+        return details
+      } finally {
+        await magasinier.fermer()
+      }
+    },
+  },
+  {
+    nom: 'préférences : le guichetier choisit son mode vocal et le son des alertes, le chef de gare impose le mode vocal',
+    async jouer(ctx) {
+      const details = []
+      const preferences = (page) => page.locator('section.card', { has: page.getByRole('heading', { name: 'Préférences' }) })
+      const guichetier = await connecter(ctx, 'guichetier_stc')
+      const chef = await connecter(ctx, 'chef_gare_stc')
+      try {
+        // 1. Le guichetier règle ses préférences dans « Mes paramètres ».
+        await guichetier.page.waitForURL('**/dashboard/guichetier')
+        await attendreCalme(guichetier.page)
+        await guichetier.page.locator('.topbar-menu summary').click()
+        await guichetier.page.locator('.topbar-menu').getByRole('link', { name: 'Mes paramètres' }).click()
+        await guichetier.page.waitForURL('**/parametres')
+        await attendreCalme(guichetier.page)
+        const bloc = preferences(guichetier.page)
+        await bloc.getByLabel('Mode vocal (application mobile)').selectOption('true')
+        await guichetier.page.getByText('Mode vocal enregistré.').waitFor({ timeout: 10000 })
+        await bloc.getByLabel("Un son à l'arrivée d'une alerte critique").check()
+        await guichetier.page.getByText('Son activé.').waitFor({ timeout: 10000 })
+        const moi = await api(ctx, 'guichetier_stc', '/configuration/moi/')
+        if (moi.prefere_vocal !== true) throw new Error('le mode vocal choisi ne s’applique pas')
+        details.push('guichetier : mode vocal « oui » et son des alertes, appliqués par le serveur')
+
+        // 2. Le chef de gare impose « pas de mode vocal » au poste de guichetier : le choix personnel ne compte plus.
+        await chef.page.waitForURL('**/dashboard/gare')
+        await attendreCalme(chef.page)
+        await chef.page.getByRole('link', { name: 'Configuration' }).click()
+        await chef.page.waitForURL('**/configuration')
+        await attendreCalme(chef.page)
+        const poste = chef.page.locator('section.card', { has: chef.page.getByRole('heading', { name: 'Guichetier', exact: true }) })
+        await poste.getByLabel('Imposer ce mode vocal').check()
+        await poste.getByRole('button', { name: 'Enregistrer' }).click()
+        await chef.page.getByText('Poste « Guichetier » enregistré.').waitFor({ timeout: 10000 })
+        await guichetier.page.reload()
+        await attendreCalme(guichetier.page)
+        await preferences(guichetier.page).getByText('Fixé par votre supérieur.').waitFor({ timeout: 10000 })
+        if (!(await preferences(guichetier.page).getByLabel('Mode vocal (application mobile)').isDisabled())) {
+          throw new Error('le mode vocal imposé reste modifiable')
+        }
+        const apres = await api(ctx, 'guichetier_stc', '/configuration/moi/')
+        if (apres.prefere_vocal !== false || apres.vocal_impose !== true) throw new Error('le mode vocal imposé ne s’applique pas')
+        await capturer(ctx, guichetier.page, 'preferences-1-impose')
+        details.push('chef de gare : mode vocal imposé au poste, le guichetier ne le change plus')
+
+        const problemes = [...guichetier.problemes, ...chef.problemes]
+        if (problemes.length) throw new Error([...new Set(problemes)].join(' ; '))
+        return details
+      } finally {
+        await api(ctx, 'chef_gare_stc', '/configuration/postes/guichetier/', {
+          method: 'PATCH',
+          body: { prefere_vocal: false, prefere_vocal_impose: false },
+        })
+        await api(ctx, 'guichetier_stc', '/configuration/mes-preferences/', {
+          method: 'PATCH',
+          body: { prefere_vocal: null, son_alertes: false },
+        })
+        await guichetier.fermer()
+        await chef.fermer()
+      }
+    },
+  },
+  {
+    nom: 'guide : le guichetier lit sa fiche, suit « Avec » vers le chef de gare, le DRH lit ce que son règlement permet',
+    async jouer(ctx) {
+      const details = []
+      const fiche = (page) => page.locator('section.guide-fiche')
+      const titre = async (page) => (await fiche(page).locator('h2').innerText()).trim()
+      const guichetier = await connecter(ctx, 'guichetier_stc')
+      const drh = await connecter(ctx, 'drh_stc')
+      try {
+        // 1. Le guichetier ouvre le guide depuis la barre du haut : sa fiche s'ouvre, rangée par moment de la journée.
+        await guichetier.page.waitForURL('**/dashboard/guichetier')
+        await attendreCalme(guichetier.page)
+        await guichetier.page.getByRole('navigation').getByRole('link', { name: 'Guide' }).click()
+        await guichetier.page.waitForURL('**/guide')
+        await attendreCalme(guichetier.page)
+        if (!(await titre(guichetier.page)).startsWith('Guichetier')) throw new Error(`fiche ouverte : ${await titre(guichetier.page)}`)
+        await fiche(guichetier.page).getByText('Votre poste').waitFor()
+        await guichetier.page.getByRole('tab', { name: 'Exploitation & Réseau (votre pôle)', selected: true }).waitFor()
+        await fiche(guichetier.page).getByRole('heading', { name: 'En fin de journée' }).waitFor()
+        await fiche(guichetier.page).getByText('Clôturer sa caisse', { exact: true }).waitFor()
+        await fiche(guichetier.page).getByRole('link', { name: 'Tableau de bord — Guichetier' }).waitFor()
+        details.push('guichetier : sa fiche s’ouvre d’abord, gestes rangés par moment, lien vers son tableau de bord')
+
+        // 2. « Avec : Chef de gare » mène à la fiche du chef de gare, qui cite le guichetier en retour ; ses pages ne sont pas des liens.
+        await fiche(guichetier.page).getByRole('link', { name: 'Chef de gare' }).first().click()
+        await guichetier.page.waitForURL('**/guide?poste=chef_gare')
+        if ((await titre(guichetier.page)) !== 'Chef de gare') throw new Error(`fiche ouverte : ${await titre(guichetier.page)}`)
+        await fiche(guichetier.page).getByRole('link', { name: 'Guichetier' }).first().waitFor()
+        if (await fiche(guichetier.page).getByRole('link', { name: 'Tableau de bord — Chef de gare' }).count()) {
+          throw new Error('le guide propose un lien vers une page que le guichetier ne peut pas ouvrir')
+        }
+        details.push('« Avec » : fiche du chef de gare, qui cite le guichetier ; pas de lien vers ses pages')
+
+        // 3. Un autre pôle : le personnel roulant et son écran du téléphone.
+        await guichetier.page.getByRole('tab', { name: 'Personnel roulant' }).click()
+        if ((await titre(guichetier.page)) !== 'Chauffeur principal') throw new Error(`fiche ouverte : ${await titre(guichetier.page)}`)
+        await fiche(guichetier.page).getByText('Téléphone', { exact: true }).first().waitFor()
+        await fiche(guichetier.page).getByRole('button', { name: 'Imprimer cette fiche' }).waitFor()
+        await capturer(ctx, guichetier.page, 'guide-1-chauffeur')
+        details.push('autre pôle : fiche du chauffeur principal, écran du téléphone signalé, imprimable')
+
+        // 4. Le DRH lit ce que le règlement intérieur de sa compagnie lui permet : non par défaut, oui quand le PDG le coche.
+        await drh.page.waitForURL('**/dashboard/rh')
+        await drh.page.goto(`${ctx.URL_WEB}/guide`)
+        await attendreCalme(drh.page)
+        await fiche(drh.page).getByText('Non permis par votre règlement intérieur').waitFor({ timeout: 10000 })
+        await api(ctx, 'pdg_stc', '/configuration/reglement/', { method: 'PATCH', body: { drh_gere_les_comptes: true } })
+        await drh.page.reload()
+        await attendreCalme(drh.page)
+        await fiche(drh.page).getByText('Permis par votre règlement intérieur').waitFor({ timeout: 10000 })
+        details.push('DRH : « gérer les comptes » non permis par défaut, permis dès que le PDG le coche')
+
+        const problemes = [...guichetier.problemes, ...drh.problemes]
+        if (problemes.length) throw new Error([...new Set(problemes)].join(' ; '))
+        return details
+      } finally {
+        await api(ctx, 'pdg_stc', '/configuration/reglement/', { method: 'PATCH', body: { drh_gere_les_comptes: false } })
+        await guichetier.fermer()
+        await drh.fermer()
+      }
+    },
+  },
+  {
+    nom: 'boutons terrain : colis débloqué et annulé, incident supprimé selon le règlement, ordre confié et supprimé, sortie annulée',
+    async jouer(ctx) {
+      const details = []
+      const accepter = (page) => page.once('dialog', (dialogue) => dialogue.accept())
+      const chef = await connecter(ctx, 'chef_gare_stc')
+      const chauffeur = await connecter(ctx, 'chauffeur_stc')
+      const mecanicien = await connecter(ctx, 'mecanicien_stc')
+      const magasinier = await connecter(ctx, 'magasinier_stc')
+      const ordres = []
+      try {
+        // 1. Chef de gare : un colis enregistré au départ de sa gare ; il renvoie le code, puis annule l'enregistrement.
+        const moiChef = await api(ctx, 'chef_gare_stc', '/auth/me/')
+        const gare = (await api(ctx, 'chef_gare_stc', '/gares/')).find((g) => g.chef === moiChef.id)
+        const lignesDeLaGare = new Set((await api(ctx, 'chef_gare_stc', '/lignes/')).filter((l) => l.gare_depart === gare.id).map((l) => l.id))
+        const depart = (await api(ctx, 'chef_gare_stc', '/departs/'))
+          .filter((d) => d.statut === 'planifie' && lignesDeLaGare.has(d.ligne) && new Date(d.date_heure) > new Date())
+          .sort((a, b) => new Date(a.date_heure) - new Date(b.date_heure))[0]
+        if (!depart) throw new Error(`aucun départ planifié au départ de ${gare.nom}`)
+        const colis = await api(ctx, 'bagagiste_stc', '/colis/', {
+          method: 'POST',
+          body: {
+            depart: depart.id, type_colis: 'colis', description: 'Sac de riz (essai)', poids_kg: '25', frais: '1500',
+            mode_paiement: 'especes', expediteur_nom: 'Issa Kone', destinataire_nom: 'Mariam Toure', destinataire_telephone: '0700000088',
+          },
+        })
+        await chef.page.waitForURL('**/dashboard/gare')
+        await chef.page.reload() // le colis vient d'être enregistré : la liste se relit
+        await attendreCalme(chef.page)
+        const ligneColis = chef.page.locator('tr', { hasText: colis.reference })
+        await ligneColis.getByRole('button', { name: 'Renvoyer le code' }).click()
+        await chef.page.getByText(`Nouveau code envoyé au destinataire du colis ${colis.reference}.`).waitFor({ timeout: 10000 })
+        if (!dernierMessage(ctx, 'Code de retrait')) throw new Error('aucun nouveau code envoyé au destinataire')
+        await ligneColis.getByLabel(`Motif d'annulation du colis ${colis.reference}`).fill('Client parti sans payer')
+        accepter(chef.page)
+        await ligneColis.getByRole('button', { name: "Annuler l'enregistrement" }).click()
+        await chef.page.getByText(`Colis ${colis.reference} annulé.`).waitFor({ timeout: 10000 })
+        if ((await api(ctx, 'chef_gare_stc', `/colis/${colis.id}/`)).statut !== 'annule') throw new Error('le colis n’est pas annulé')
+        details.push('chef de gare : nouveau code envoyé, colis annulé avec son motif')
+
+        // 2. Chauffeur : il supprime un incident déclaré par erreur ; le règlement l'interdit, le bouton disparaît.
+        const moiChauffeur = await api(ctx, 'chauffeur_stc', '/auth/me/')
+        const vehicule = (await api(ctx, 'chef_atelier_stc', '/vehicules/')).find((v) => v.statut === 'disponible')
+        const declarer = (description) =>
+          api(ctx, 'chauffeur_stc', '/incidents/', {
+            method: 'POST',
+            body: { vehicule: vehicule.id, chauffeur: moiChauffeur.id, type_incident: 'autre', gravite: 'faible', description },
+          })
+        await declarer('Rétroviseur signalé par erreur')
+        await chauffeur.page.waitForURL('**/dashboard/chauffeur')
+        await chauffeur.page.reload()
+        await attendreCalme(chauffeur.page)
+        const mesIncidents = chauffeur.page.locator('section.card', { has: chauffeur.page.getByRole('heading', { name: 'Mes incidents déclarés' }) })
+        accepter(chauffeur.page)
+        await mesIncidents.locator('tr', { hasText: 'Rétroviseur signalé par erreur' }).getByRole('button', { name: 'Supprimer' }).click()
+        await chauffeur.page.getByText('Incident supprimé.').waitFor({ timeout: 10000 })
+        await api(ctx, 'pdg_stc', '/configuration/reglement/', { method: 'PATCH', body: { chauffeur_supprime_ses_incidents: false } })
+        await declarer('Phare à vérifier')
+        await chauffeur.page.reload()
+        await attendreCalme(chauffeur.page)
+        await mesIncidents.locator('tr', { hasText: 'Phare à vérifier' }).waitFor({ timeout: 10000 })
+        if (await mesIncidents.getByRole('button', { name: 'Supprimer' }).count()) throw new Error('le bouton Supprimer reste alors que le règlement l’interdit')
+        details.push('chauffeur : incident supprimé ; règlement « non permis » : plus de bouton')
+
+        // 3. Mécanicien : il confie une intervention au chef d'atelier, et supprime un ordre ouvert par erreur.
+        const intervenants = await api(ctx, 'chef_atelier_stc', '/maintenance/intervenants/')
+        const meca = intervenants.find((i) => i.role === 'mecanicien' && i.nom)
+        const moiMeca = await api(ctx, 'mecanicien_stc', '/auth/me/')
+        const chefAtelier = intervenants.find((i) => i.role === 'chef_atelier')
+        const ouvrir = async (description) => {
+          const ordre = await api(ctx, 'chef_atelier_stc', '/ordres-reparation/', {
+            method: 'POST', body: { vehicule: vehicule.id, description, mecanicien: moiMeca.id, urgence: 'normale' },
+          })
+          ordres.push(ordre.id)
+          return ordre
+        }
+        if (!meca || !chefAtelier) throw new Error('intervenants de l’atelier introuvables')
+        const aConfier = await ouvrir('Essai : changer un balai d’essuie-glace')
+        const aSupprimer = await ouvrir('Essai : ordre ouvert par erreur')
+        await mecanicien.page.waitForURL('**/dashboard/mecanicien')
+        await mecanicien.page.reload()
+        await attendreCalme(mecanicien.page)
+        await mecanicien.page.getByLabel(`Collègue à qui confier l’intervention ${aConfier.id}`).selectOption(String(chefAtelier.id))
+        await mecanicien.page.locator('tr', { hasText: 'changer un balai' }).getByRole('button', { name: 'Confier' }).click()
+        await mecanicien.page.getByText(`Intervention #${aConfier.id} confiée à ${chefAtelier.nom}`).waitFor({ timeout: 10000 })
+        if ((await api(ctx, 'chef_atelier_stc', `/ordres-reparation/${aConfier.id}/`)).mecanicien !== chefAtelier.id) {
+          throw new Error('l’ordre n’a pas changé d’intervenant')
+        }
+        accepter(mecanicien.page)
+        await mecanicien.page.locator('tr', { hasText: 'ordre ouvert par erreur' }).getByRole('button', { name: 'Supprimer' }).click()
+        await mecanicien.page.getByText(`Ordre de réparation #${aSupprimer.id} supprimé.`).waitFor({ timeout: 10000 })
+        ordres.splice(ordres.indexOf(aSupprimer.id), 1)
+        details.push('mécanicien : intervention confiée au chef d’atelier, ordre supprimé')
+
+        // 4. Magasinier : une sortie de pièce enregistrée par erreur est annulée, les pièces reviennent au stock.
+        const piece = (await api(ctx, 'magasinier_stc', '/pieces/')).find((p) => p.quantite_stock >= 2)
+        const stockAvant = piece.quantite_stock
+        await api(ctx, 'magasinier_stc', '/sorties-pieces/', { method: 'POST', body: { ordre_reparation: aConfier.id, piece: piece.id, quantite: 1 } })
+        await magasinier.page.waitForURL('**/dashboard/magasinier')
+        await magasinier.page.locator('.topbar-menu summary').click()
+        await magasinier.page.locator('.topbar-menu').getByRole('link', { name: 'Pièces et stock' }).click()
+        await magasinier.page.waitForURL('**/pieces')
+        await attendreCalme(magasinier.page)
+        await magasinier.page.locator('tr', { hasText: piece.reference }).getByRole('button', { name: 'Mouvements' }).click()
+        accepter(magasinier.page)
+        await magasinier.page.getByRole('button', { name: 'Annuler la sortie' }).first().click()
+        await magasinier.page.getByText('Sortie annulée : les pièces sont revenues au stock.').waitFor({ timeout: 10000 })
+        const stockApres = (await api(ctx, 'magasinier_stc', `/pieces/${piece.id}/`)).quantite_stock
+        if (stockApres !== stockAvant) throw new Error(`stock ${stockApres} au lieu de ${stockAvant} après l’annulation`)
+        await capturer(ctx, magasinier.page, 'boutons-1-sortie-annulee')
+        details.push(`magasinier : sortie annulée, stock revenu à ${stockAvant}`)
+
+        const problemes = [...chef.problemes, ...chauffeur.problemes, ...mecanicien.problemes, ...magasinier.problemes]
+        if (problemes.length) throw new Error([...new Set(problemes)].join(' ; '))
+        return details
+      } finally {
+        await api(ctx, 'pdg_stc', '/configuration/reglement/', { method: 'PATCH', body: { chauffeur_supprime_ses_incidents: true } })
+        for (const id of ordres) await api(ctx, 'chef_atelier_stc', `/ordres-reparation/${id}/`, { method: 'DELETE' }).catch(() => {})
+        await chef.fermer()
+        await chauffeur.fermer()
+        await mecanicien.fermer()
+        await magasinier.fermer()
+      }
+    },
+  },
+  {
+    nom: 'boutons direction : règlement intérieur, billetterie (mode, clé, import du chef de gare), tutelle, gare supprimée',
+    async jouer(ctx) {
+      const details = []
+      const accepter = (page) => page.once('dialog', (dialogue) => dialogue.accept())
+      const ouvrirParametre = async (page, libelle, url) => {
+        await page.locator('.topbar-menu summary').click()
+        await page.locator('.topbar-menu').getByRole('link', { name: libelle }).click()
+        await page.waitForURL(url)
+        await attendreCalme(page)
+      }
+      const pdg = await connecter(ctx, 'pdg_stc')
+      const chef = await connecter(ctx, 'chef_gare_stc')
+      const qhse = await connecter(ctx, 'qhse_stc')
+      try {
+        // 1. Règlement intérieur : le PDG exige la levée du QHSE pour un car réparé, puis revient au défaut.
+        await pdg.page.waitForURL('**/dashboard/direction')
+        await attendreCalme(pdg.page)
+        await ouvrirParametre(pdg.page, 'Règlement intérieur', '**/reglement')
+        const regle = pdg.page.getByRole('checkbox', { name: /La réparation terminée remet en service/ })
+        await regle.uncheck()
+        await pdg.page.getByText(/^Non permis : La réparation terminée/).waitFor({ timeout: 10000 })
+        const lu = (await api(ctx, 'pdg_stc', '/configuration/reglement/')).find((r) => r.code === 'reparation_leve_le_blocage_qhse')
+        if (lu.permis !== false) throw new Error('la règle cochée n’est pas enregistrée')
+        await regle.check()
+        await pdg.page.getByText(/^Permis : La réparation terminée/).waitFor({ timeout: 10000 })
+        details.push('PDG : règle « levée du QHSE exigée » décochée puis recochée, enregistrée par le serveur')
+
+        // 2. Billetterie : mode mixte, clé créée (montrée une fois) puis révoquée.
+        await ouvrirParametre(pdg.page, 'Billetterie', '**/billetterie')
+        await pdg.page.getByRole('radio', { name: /^Mixte/ }).check()
+        await pdg.page.getByText('Billetterie mixte.').waitFor({ timeout: 10000 })
+        await pdg.page.getByLabel('Logiciel à relier').fill('BilletPro')
+        await pdg.page.getByRole('button', { name: 'Créer une clé' }).click()
+        const nouvelle = pdg.page.getByRole('status').filter({ hasText: 'BilletPro' })
+        await nouvelle.locator('code').waitFor({ timeout: 10000 })
+        await nouvelle.getByRole('button', { name: "C'est noté" }).click()
+        accepter(pdg.page)
+        await pdg.page.locator('tr', { hasText: 'BilletPro' }).getByRole('button', { name: 'Révoquer' }).click()
+        await pdg.page.getByText('Clé de « BilletPro » révoquée.').waitFor({ timeout: 10000 })
+        details.push('PDG : billetterie mixte, clé créée (affichée une seule fois) puis révoquée')
+
+        // 3. Le chef de gare importe le fichier de ventes du logiciel ; réimporté, il ne crée rien de plus.
+        const moiChef = await api(ctx, 'chef_gare_stc', '/auth/me/')
+        const gare = (await api(ctx, 'chef_gare_stc', '/gares/')).find((g) => g.chef === moiChef.id)
+        const lignesDeLaGare = new Set((await api(ctx, 'chef_gare_stc', '/lignes/')).filter((l) => l.gare_depart === gare.id).map((l) => l.id))
+        const depart = (await api(ctx, 'chef_gare_stc', '/departs/')).find(
+          (d) => d.statut === 'planifie' && lignesDeLaGare.has(d.ligne) && new Date(d.date_heure) > new Date() && d.places_restantes > 0,
+        )
+        const fichier = { name: 'ventes.csv', mimeType: 'text/csv', buffer: Buffer.from(`reference,depart,passager,prix,mode_paiement\nE2E-IMPORT-1,${depart.id},Kone Ali,5000,especes\n`) }
+        await chef.page.waitForURL('**/dashboard/gare')
+        await chef.page.reload()
+        await attendreCalme(chef.page)
+        const importer = async () => {
+          await chef.page.getByLabel('Logiciel qui a produit le fichier').fill('BilletPro')
+          await chef.page.getByLabel('Fichier des ventes (CSV ou Excel)').setInputFiles(fichier)
+          await chef.page.getByRole('button', { name: 'Importer les ventes' }).click()
+        }
+        await importer()
+        await chef.page.getByText('Import terminé : 1 vente(s) créée(s).').waitFor({ timeout: 10000 })
+        await importer()
+        await chef.page.getByText('Import terminé : 0 vente(s) créée(s).').waitFor({ timeout: 10000 })
+        await chef.page.getByText('1 déjà reçue(s)', { exact: false }).first().waitFor()
+        details.push('chef de gare : 1 vente importée ; le même fichier réimporté ne crée rien')
+
+        // 4. QHSE : les flux de la tutelle rattrapés, un flux marqué traité.
+        await qhse.page.waitForURL('**/dashboard/qhse')
+        await attendreCalme(qhse.page)
+        const tutelle = qhse.page.locator('section.card', { has: qhse.page.getByRole('heading', { name: 'Échanges avec la tutelle' }) })
+        await tutelle.getByRole('button', { name: 'Rattraper les flux automatiques' }).click()
+        await qhse.page.getByText(/^Flux rattrapés/).waitFor({ timeout: 10000 })
+        const aTraiter = tutelle.getByRole('button', { name: 'Marquer traité' })
+        if (await aTraiter.count()) {
+          await aTraiter.first().click()
+          await qhse.page.getByText('Flux marqué traité.').waitFor({ timeout: 10000 })
+          details.push('QHSE : flux de la tutelle rattrapés, un flux marqué traité')
+        } else {
+          details.push('QHSE : flux de la tutelle rattrapés (aucun à traiter)')
+        }
+
+        // 5. Une gare créée par erreur se supprime depuis sa fiche.
+        await api(ctx, 'pdg_stc', '/gares/', { method: 'POST', body: { nom: 'Gare créée par erreur', ville: 'Abidjan' } })
+        await ouvrirParametre(pdg.page, 'Gares et quais', '**/gares')
+        await pdg.page.locator('tr', { hasText: 'Gare créée par erreur' }).getByRole('button', { name: 'Modifier' }).click()
+        accepter(pdg.page)
+        await pdg.page.getByRole('button', { name: 'Supprimer la gare' }).click()
+        await pdg.page.locator('tr', { hasText: 'Gare créée par erreur' }).waitFor({ state: 'detached', timeout: 10000 })
+        details.push('PDG : gare saisie par erreur supprimée depuis sa fiche')
+
+        const problemes = [...pdg.problemes, ...chef.problemes, ...qhse.problemes]
+        if (problemes.length) throw new Error([...new Set(problemes)].join(' ; '))
+        return details
+      } finally {
+        await api(ctx, 'pdg_stc', '/configuration/reglement/', { method: 'PATCH', body: { reparation_leve_le_blocage_qhse: true } })
+        await api(ctx, 'pdg_stc', '/lien-billetterie/reglage/', { method: 'PATCH', body: { mode: 'integre' } })
+        await pdg.fermer()
+        await chef.fermer()
+        await qhse.fermer()
       }
     },
   },
