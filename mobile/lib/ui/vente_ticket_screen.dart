@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -53,6 +55,8 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
   void initState() {
     super.initState();
     _loadDeparts();
+    // La compagnie a pu passer en billetterie externe depuis la connexion : relu à chaque ouverture (sans effet hors ligne).
+    unawaited(context.read<MaConfiguration>().actualiser());
   }
 
   @override
@@ -90,6 +94,15 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
     });
   }
 
+  /// Le tarif de la ligne du départ choisi (null : pas de tarif, le prix se saisit).
+  int? get _tarif => _departs?.data.where((d) => d.id == _departId).firstOrNull?.tarif;
+
+  /// Le prix affiché suit le tarif de la ligne ; sans tarif, le champ se vide pour être saisi.
+  void _appliquerTarif() {
+    final tarif = _tarif;
+    _prix.text = tarif == null ? '' : '$tarif';
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
@@ -118,7 +131,9 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
         'depart': _departId,
         'passager_nom': _nom.text.trim(),
         'passager_telephone': _telephone.text.trim(),
-        'prix': _prix.text.trim().replaceAll(',', '.'),
+        // Avec un tarif, la vente part sans prix et le serveur applique celui de la ligne, comme sur le site : une vente
+        // hors ligne n'est plus refusée pour un prix qui n'est pas le tarif.
+        if (_tarif == null) 'prix': _prix.text.trim().replaceAll(',', '.'),
         'mode_paiement': _mode,
       },
     );
@@ -143,7 +158,11 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
   }
 
   void _choisirDepart(int? depart) {
-    setState(() => _departId = depart);
+    final avaitUnTarif = _tarif != null;
+    setState(() {
+      _departId = depart;
+      if (_tarif != null || avaitUnTarif) _appliquerTarif();
+    });
     if (depart != null && !_dicteeLancee && context.read<MaConfiguration>().prefereVocal) {
       _dicteeLancee = true;
       _demarrerVenteVocale();
@@ -185,11 +204,14 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
       if (!mounted || telephone == null) return;
       setState(() => _telephone.text = extractDigitsOnly(telephone));
 
-      setState(() => _voiceStatus = 'Dites le prix…');
-      final prixDit = await session.ask('Dites le prix, en francs C F A.');
-      if (!mounted || prixDit == null) return;
-      final prix = extractNumber(prixDit);
-      if (prix != null) setState(() => _prix.text = prix);
+      // Le tarif de la ligne fait le prix : on ne le demande pas.
+      if (_tarif == null) {
+        setState(() => _voiceStatus = 'Dites le prix…');
+        final prixDit = await session.ask('Dites le prix, en francs C F A.');
+        if (!mounted || prixDit == null) return;
+        final prix = extractNumber(prixDit);
+        if (prix != null) setState(() => _prix.text = prix);
+      }
 
       setState(() => _voiceStatus = 'Dites le mode de paiement…');
       final modeDit = await session.ask('Dites le mode de paiement : espèces, ou mobile money.');
@@ -232,6 +254,7 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
     _nom.clear();
     _telephone.clear();
     _formKey.currentState?.reset();
+    if (_tarif != null) _appliquerTarif();
   }
 
   void _toast(String message) => ScaffoldMessenger.of(context)
@@ -239,6 +262,7 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
     ..showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 5)));
 
   String? _validatePrix(String? value) {
+    if (_tarif != null) return null; // le tarif de la ligne, non modifiable
     final parsed = double.tryParse((value ?? '').trim().replaceAll(',', '.'));
     if (parsed == null || parsed <= 0) return 'Saisissez un prix supérieur à 0.';
     if (parsed >= 100000000) return 'Prix trop élevé.';
@@ -251,7 +275,9 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
     final quota = context.watch<QuotaService>();
     return Scaffold(
       appBar: AppBar(title: const Text('Vendre un ticket')),
-      body: _loading
+      body: !context.watch<MaConfiguration>().venteAuGuichet
+          ? const Padding(padding: EdgeInsets.all(16), child: VenteAuGuichetFermee())
+          : _loading
           ? const Center(child: CircularProgressIndicator())
           : _loadError != null
               ? Center(
@@ -352,11 +378,13 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
                         key: const Key('prix'),
                         controller: _prix,
                         enabled: !_busy,
+                        readOnly: _tarif != null,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
-                          labelText: 'Prix',
+                        decoration: InputDecoration(
+                          labelText: _tarif == null ? 'Prix' : 'Prix (tarif de la ligne)',
+                          helperText: _tarif == null ? null : 'Fixé par la compagnie : seul un chef peut y déroger.',
                           suffixText: 'FCFA',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                         ),
                         validator: _validatePrix,
                       ),
@@ -403,6 +431,25 @@ class _VenteTicketScreenState extends State<VenteTicketScreen> {
                     ],
                   ),
                 ),
+    );
+  }
+}
+
+/// La compagnie vend par son propre logiciel de billetterie : le guichet ne vend plus (T-02).
+class VenteAuGuichetFermee extends StatelessWidget {
+  const VenteAuGuichetFermee({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      key: Key('vente-fermee'),
+      child: ListTile(
+        leading: Icon(Icons.storefront_outlined),
+        title: Text('Vente au guichet fermée'),
+        subtitle: Text(
+          'La billetterie de la compagnie passe par son propre logiciel : vendez les tickets dans ce logiciel.',
+        ),
+      ),
     );
   }
 }

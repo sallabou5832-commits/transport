@@ -21,6 +21,10 @@ class MaConfiguration extends ChangeNotifier {
   /// Le supérieur a imposé le mode vocal : l'agent ne le choisit pas lui-même.
   bool get vocalImpose => _moi['vocal_impose'] == true;
 
+  /// Faux quand la billetterie de la compagnie passe tout entière par son propre logiciel : le serveur refuse alors la
+  /// vente au guichet, l'écran ne la propose plus. Inconnu (jamais lu) : ouverte, comme avant.
+  bool get venteAuGuichet => _moi['vente_au_guichet'] != false;
+
   bool get codeCourtExige {
     final session = _moi['session'];
     return session is Map && session['code_court_exige'] == true;

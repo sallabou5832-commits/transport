@@ -150,6 +150,62 @@ void main() {
     expect(outbox.pendingFor(1).first.attempts, 0);
   });
 
+  test('mot de passe provisoire (403 avec son code) : s\'arrête, la vente reste en file (T-01)', () async {
+    await enfiler('A');
+    await enfiler('B');
+    comportement = (_) async => throw const ApiException(
+          403,
+          'Mot de passe provisoire : choisissez le vôtre avant de continuer (Mes paramètres).',
+          {'detail': 'Mot de passe provisoire…', 'code': 'mot_de_passe_provisoire'},
+        );
+
+    final result = await sync.syncNow();
+
+    expect(result.stop, SyncStop.motDePasseProvisoire);
+    expect(result.rejected, 0);
+    expect(outbox.pendingFor(1), hasLength(2));
+    expect(outbox.rejectedFor(1), isEmpty);
+    expect(envoyes, ['A'], reason: 'on s\'arrête au premier refus : B n\'est pas tentée');
+  });
+
+  test('un autre 403 reste un refus définitif', () async {
+    await enfiler('A');
+    comportement = (_) async => throw const ApiException(403, 'Interdit', {'detail': 'Interdit'});
+
+    final result = await sync.syncNow();
+
+    expect(result.rejected, 1);
+    expect(outbox.rejectedFor(1).single.lastError, 'Interdit');
+  });
+
+  test('tant que le mot de passe est provisoire, rien ne part ; ensuite, tout part (T-01)', () async {
+    var provisoire = true;
+    sync = SyncService(
+      outbox: outbox,
+      handlers: {
+        type: (action) async => envoyes.add(action.payload['nom'] as String),
+      },
+      currentUserId: () => userId,
+      motDePasseProvisoire: () => provisoire,
+    );
+    await enfiler('A');
+
+    final enAttente = await sync.syncNow();
+    expect(enAttente.stop, SyncStop.motDePasseProvisoire);
+    expect(envoyes, isEmpty);
+    expect(sync.pendingCount, 1);
+
+    final soumis = await sync.submit(type: type, payload: {'nom': 'B'});
+    expect(soumis.status, SubmitStatus.queued);
+    expect(soumis.message, contains('mot de passe'));
+
+    provisoire = false;
+    final apres = await sync.syncNow();
+    expect(apres.stop, SyncStop.none);
+    expect(envoyes, ['A', 'B']);
+    expect(outbox.pendingFor(1), isEmpty);
+  });
+
   test('n\'envoie jamais les actions d\'un autre utilisateur', () async {
     await enfiler('à moi', user: 1);
     await enfiler('à un collègue', user: 2);

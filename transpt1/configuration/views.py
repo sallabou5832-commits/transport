@@ -33,6 +33,8 @@ from configuration.services import (
 )
 from core.mixins import ActeurAuditeMixin
 from core.models import Role
+from lien_billetterie.models import ModeBilletterie
+from lien_billetterie.services import mode_billetterie
 
 
 def _roles_configurables(user):
@@ -63,6 +65,9 @@ class MaConfigurationView(APIView):
                 },
                 "peut_configurer": sorted(role.value for role in _roles_configurables(request.user)),
                 "peut_fixer_le_cadre": request.user.role == Role.PDG,
+                # Faux quand la billetterie de la compagnie passe tout entière par son logiciel (`lien_billetterie`) : le
+                # serveur refuse alors la vente au guichet, et les écrans du guichet ne la proposent plus.
+                "vente_au_guichet": mode_billetterie(request.user.company_id) != ModeBilletterie.EXTERNE,
             }
         )
 

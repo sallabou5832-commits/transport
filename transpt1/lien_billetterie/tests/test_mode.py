@@ -68,6 +68,19 @@ class TestReglage:
 
 @pytest.mark.django_db
 class TestVenteAuGuichet:
+    def test_les_ecrans_du_guichet_savent_si_la_vente_est_ouverte(self, api_client, agents, company_a, company_b, user_factory):
+        def ouverte(user):
+            api_client.force_authenticate(user=user)
+            return api_client.get("/api/configuration/moi/").data["vente_au_guichet"]
+
+        assert ouverte(agents["guichetier"]) is True
+        passer_en(company_a, ModeBilletterie.MIXTE)
+        assert ouverte(agents["guichetier"]) is True
+        passer_en(company_a, ModeBilletterie.EXTERNE)
+        assert ouverte(agents["guichetier"]) is False
+        # La compagnie d'à côté n'en est pas touchée.
+        assert ouverte(user_factory("guichetier_b_vente", Role.GUICHETIER, company=company_b)) is True
+
     def test_en_billetterie_integree_le_guichet_vend(self, api_client, agents, reseau):
         assert vendre_au_guichet(api_client, agents["guichetier"], reseau["depart"]).status_code == 201
 

@@ -69,6 +69,36 @@ void main() {
       expect(h.server.requestsTo('POST', '/tickets/'), isEmpty);
     });
 
+    appTest('HORS LIGNE, ligne à tarif : tarif gardé sur le téléphone, vente en file sans prix (G-02)',
+        (tester, h) async {
+      h.stubLogin();
+      h.stubDeparts(tarif: '6000.00');
+      h.server.onJson('POST', '/tickets/', {'id': 99}, 201);
+      await demarrer(tester, h);
+      await seConnecter(tester);
+      await ouvrirVente(tester);
+      await retour(tester);
+      await coupureReseau(tester, h);
+      await ouvrirVente(tester);
+      await choisirDepart(tester);
+
+      final prix = tester.widget<TextField>(
+        find.descendant(of: find.byKey(const Key('prix')), matching: find.byType(TextField)),
+      );
+      expect(prix.controller!.text, '6000');
+      await tester.enterText(find.byKey(const Key('passager-nom')), 'Kouadio Yao');
+      await tester.enterText(find.byKey(const Key('passager-telephone')), '0700000000');
+      await tester.tap(find.byKey(const Key('valider-vente')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Vente enregistrée sur le téléphone'), findsOneWidget);
+      expect(Outbox(h.services.store.outboxBox).pendingFor(7).single.payload.containsKey('prix'), isFalse);
+
+      await retourReseau(tester, h);
+      expect(enAttente(h), 0);
+      expect(h.server.requestsTo('POST', '/tickets/').single.body, isNot(contains('"prix"')));
+    });
+
     appTest('hors ligne sans aucune réservation : vente bloquée, rien mis en file', (tester, h) async {
       await guichetierPret(tester, h, places: 0);
       await coupureReseau(tester, h);

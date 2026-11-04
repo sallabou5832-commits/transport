@@ -759,8 +759,9 @@ select {
 
 /* Cloche des alertes inter-pôles */
 
+/* Le panneau s'accroche à la barre du haut, pas au bouton : il s'ouvre sous la navigation, qui reste cliquable. */
 .cloche {
-  position: relative;
+  position: static;
 }
 
 .cloche-bouton {
@@ -789,7 +790,7 @@ select {
 .cloche-panneau {
   color: var(--color-text);
   position: absolute;
-  right: 0;
+  right: 1.5rem;
   top: calc(100% + 0.4rem);
   z-index: 20;
   width: min(26rem, 90vw);

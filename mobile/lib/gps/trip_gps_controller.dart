@@ -65,7 +65,14 @@ class TripGpsController with WidgetsBindingObserver {
     _verification = Timer.periodic(intervalleVerification, (_) => _verifier());
   }
 
-  Future<void> _verifier() async {
+  Future<void>? _verificationEnCours;
+
+  /// Une vérification à la fois. La demande d'autorisation de localisation fait passer l'application en arrière-plan ;
+  /// à son retour (« resumed »), une seconde vérification lancée pendant l'attente ouvrirait sinon un second abonnement
+  /// GPS, jamais fermé (G-04) : elle rejoint la première.
+  Future<void> _verifier() => _verificationEnCours ??= _verifierUneFois().whenComplete(() => _verificationEnCours = null);
+
+  Future<void> _verifierUneFois() async {
     final enCours = await verifierTrajetEnCours();
     if (enCours == null) return; // État inconnu (hors ligne) : on ne touche pas à un suivi en cours.
     if (enCours && !enSuivi) {
@@ -77,6 +84,8 @@ class TripGpsController with WidgetsBindingObserver {
 
   Future<void> _demarrerSuivi() async {
     if (!await location.ensurePermission()) return; // Refusé : on continue sans suivi, jamais bloquant.
+    // Déconnecté pendant la demande d'autorisation : plus rien à suivre.
+    if (_verification == null || _abonnement != null) return;
     _abonnement = location
         .watch(
           distanceFilterMetres: distanceFiltreMetres,

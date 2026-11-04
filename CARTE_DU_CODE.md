@@ -466,9 +466,9 @@ l'éditeur du logiciel : `transpt1/LIEN_BILLETTERIE.md`.
 | `sync/sync_triggers.dart` | Déclenche une synchronisation (retour réseau, retour au premier plan, toutes les 60 s). |
 | `sync/connectivity_monitor.dart` | Surveille la présence d'une connexion réseau. |
 | `data/loaded.dart` | Enveloppe générique : donnée + provenance (serveur/cache) + date. |
-| `data/depart_repository.dart` / `feuille_repository.dart` | Lecture des départs / feuilles de route (réseau ou cache hors ligne). |
+| `data/depart_repository.dart` / `feuille_repository.dart` | Lecture des départs (avec le tarif de leur ligne) / feuilles de route (réseau ou cache hors ligne). |
 | `data/quota_service.dart` | Places garanties hors ligne du guichetier (`reserver-hors-ligne`). |
-| `data/ma_configuration.dart` | Ce qui s'applique à l'agent (`/configuration/moi/`) : mode vocal, code court exigé ; gardé pour le mode hors ligne. |
+| `data/ma_configuration.dart` | Ce qui s'applique à l'agent (`/configuration/moi/`) : mode vocal, code court exigé, vente au guichet ouverte ou non (billetterie externe) ; gardé pour le mode hors ligne. |
 | `data/guide.dart` | Le guide d'utilisation (`/guides/`) : modèles et lecture, gardé pour le relire hors ligne. |
 | `ui/login_screen.dart` | Écran de connexion (affiche l'adresse du serveur en debug). |
 | `ui/home_screen.dart` | Aiguille vers l'écran d'accueil du rôle connecté. |

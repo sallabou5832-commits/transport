@@ -121,6 +121,34 @@ void main() {
     test('« moto » ne déclenche pas « ok » par sous-chaîne', () {
       expect(parseEtatChecklist('la moto est garée à côté'), isNull);
     });
+
+    test('un accord nié est un défaut, jamais un OK (G-03)', () {
+      expect(parseEtatChecklist('pas bon'), 'defaut');
+      expect(parseEtatChecklist('pas OK'), 'defaut');
+      expect(parseEtatChecklist('c\'est pas ok'), 'defaut');
+      expect(parseEtatChecklist('ce n\'est pas bon'), 'defaut');
+      expect(parseEtatChecklist('les freins ne sont pas bons'), 'defaut');
+      expect(parseEtatChecklist('pas très bon'), 'defaut');
+      expect(parseEtatChecklist('plus correct du tout'), 'defaut');
+    });
+
+    test('accords et défauts au pluriel ou au féminin', () {
+      expect(parseEtatChecklist('les freins sont bons'), 'ok');
+      expect(parseEtatChecklist('pneus usés'), 'defaut');
+      expect(parseEtatChecklist('vitre cassée'), 'defaut');
+    });
+
+    test('un défaut nié seul ne vaut pas OK : dans le doute, rien', () {
+      expect(parseEtatChecklist('pas de défaut'), isNull);
+      expect(parseEtatChecklist('aucun problème'), isNull);
+      expect(parseEtatChecklist('sans problème'), isNull);
+    });
+
+    test('la négation ne déborde pas sur le mot-clé suivant', () {
+      expect(parseEtatChecklist('pas de problème, ok'), 'ok');
+      expect(parseEtatChecklist('ok mais pas bon à l\'arrière'), 'defaut');
+      expect(parseEtatChecklist('bon, mais un pneu usé'), 'defaut');
+    });
   });
 
   group('parseConfirmationIntent', () {
@@ -136,6 +164,26 @@ void main() {
 
     test('rien de reconnu : inconnu (jamais confirmé par défaut)', () {
       expect(parseConfirmationIntent('bonjour'), VoiceIntent.inconnu);
+    });
+
+    test('« c\'est bon » confirme, l\'apostrophe comprise', () {
+      expect(parseConfirmationIntent('c\'est bon'), VoiceIntent.confirmer);
+    });
+
+    test('une confirmation niée est un refus, jamais une validation (G-03)', () {
+      expect(parseConfirmationIntent('je valide pas'), VoiceIntent.modifier);
+      expect(parseConfirmationIntent('je ne confirme pas'), VoiceIntent.modifier);
+      expect(parseConfirmationIntent('n\'envoie pas'), VoiceIntent.modifier);
+      expect(parseConfirmationIntent('surtout ne pas valider'), VoiceIntent.modifier);
+      expect(parseConfirmationIntent('c\'est pas bon'), isNot(VoiceIntent.confirmer));
+    });
+
+    test('confirmer et refuser à la fois : inconnu', () {
+      expect(parseConfirmationIntent('confirmer ou modifier'), VoiceIntent.inconnu);
+    });
+
+    test('une modification niée ne refuse pas', () {
+      expect(parseConfirmationIntent('je confirme, ne modifie pas'), VoiceIntent.confirmer);
     });
   });
 

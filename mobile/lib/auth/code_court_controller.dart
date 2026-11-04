@@ -62,6 +62,8 @@ class CodeCourtController extends ChangeNotifier with WidgetsBindingObserver {
     final proprietaire = await store.proprietaire();
     if (proprietaire != null && proprietaire != user.id) await store.effacer(); // un autre agent sur ce téléphone
     _defini = await store.existe();
+    // Juste après le mot de passe, les erreurs de code court d'avant ne retirent plus d'essais (T-05).
+    if (_defini && !reprise) await store.oublierLesEchecs();
     _echecs = await store.echecs();
     _verrouille = _defini && reprise;
     _utilisateur = user.id;

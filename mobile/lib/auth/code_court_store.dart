@@ -56,6 +56,13 @@ class CodeCourtStore {
     return bon;
   }
 
+  /// Le mot de passe vient d'être saisi : les erreurs de code court d'avant ne comptent plus.
+  Future<void> oublierLesEchecs() async {
+    final valeur = await _lire();
+    if (valeur == null || (valeur['echecs'] as int? ?? 0) == 0) return;
+    await _ecrire({...valeur, 'echecs': 0});
+  }
+
   Future<void> effacer() => _secrets.delete(_cle);
 
   static List<int> _empreinte(String code, List<int> sel) {

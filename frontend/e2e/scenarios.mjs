@@ -1835,6 +1835,17 @@ export const scenarios = [
       const details = []
       const fiche = (page) => page.locator('section.guide-fiche')
       const titre = async (page) => (await fiche(page).locator('h2').innerText()).trim()
+      // Un changement d'onglet ou de fiche se dessine juste après le clic : on attend la fiche voulue plutôt que de lire
+      // tout de suite la précédente.
+      // `exact` faux : le titre commence seulement par ce nom (la fiche du lecteur porte en plus « Votre poste »).
+      const attendreFiche = async (page, nom, { exact = true } = {}) => {
+        try {
+          const motif = new RegExp(`^\\s*${nom}${exact ? '\\s*$' : ''}`)
+          await fiche(page).locator('h2', { hasText: motif }).waitFor({ timeout: 5000 })
+        } catch {
+          throw new Error(`fiche ouverte : ${await titre(page)} (attendue : ${nom})`)
+        }
+      }
       const guichetier = await connecter(ctx, 'guichetier_stc')
       const drh = await connecter(ctx, 'drh_stc')
       try {
@@ -1844,7 +1855,7 @@ export const scenarios = [
         await guichetier.page.getByRole('navigation').getByRole('link', { name: 'Guide' }).click()
         await guichetier.page.waitForURL('**/guide')
         await attendreCalme(guichetier.page)
-        if (!(await titre(guichetier.page)).startsWith('Guichetier')) throw new Error(`fiche ouverte : ${await titre(guichetier.page)}`)
+        await attendreFiche(guichetier.page, 'Guichetier', { exact: false })
         await fiche(guichetier.page).getByText('Votre poste').waitFor()
         await guichetier.page.getByRole('tab', { name: 'Exploitation & Réseau (votre pôle)', selected: true }).waitFor()
         await fiche(guichetier.page).getByRole('heading', { name: 'En fin de journée' }).waitFor()
@@ -1855,7 +1866,7 @@ export const scenarios = [
         // 2. « Avec : Chef de gare » mène à la fiche du chef de gare, qui cite le guichetier en retour ; ses pages ne sont pas des liens.
         await fiche(guichetier.page).getByRole('link', { name: 'Chef de gare' }).first().click()
         await guichetier.page.waitForURL('**/guide?poste=chef_gare')
-        if ((await titre(guichetier.page)) !== 'Chef de gare') throw new Error(`fiche ouverte : ${await titre(guichetier.page)}`)
+        await attendreFiche(guichetier.page, 'Chef de gare')
         await fiche(guichetier.page).getByRole('link', { name: 'Guichetier' }).first().waitFor()
         if (await fiche(guichetier.page).getByRole('link', { name: 'Tableau de bord — Chef de gare' }).count()) {
           throw new Error('le guide propose un lien vers une page que le guichetier ne peut pas ouvrir')
@@ -1864,7 +1875,7 @@ export const scenarios = [
 
         // 3. Un autre pôle : le personnel roulant et son écran du téléphone.
         await guichetier.page.getByRole('tab', { name: 'Personnel roulant' }).click()
-        if ((await titre(guichetier.page)) !== 'Chauffeur principal') throw new Error(`fiche ouverte : ${await titre(guichetier.page)}`)
+        await attendreFiche(guichetier.page, 'Chauffeur principal')
         await fiche(guichetier.page).getByText('Téléphone', { exact: true }).first().waitFor()
         await fiche(guichetier.page).getByRole('button', { name: 'Imprimer cette fiche' }).waitFor()
         await capturer(ctx, guichetier.page, 'guide-1-chauffeur')

@@ -17,9 +17,14 @@ class _FakeLocationSource implements LocationSource {
   int suivisDemarres = 0;
   void Function(GpsFix)? _emetteur;
 
+  /// Rempli, la demande d'autorisation attend qu'on y réponde (le dialogue du téléphone est ouvert).
+  Completer<bool>? dialogueOuvert;
+
   @override
   Future<bool> ensurePermission() async {
     demandesPermission++;
+    final dialogue = dialogueOuvert;
+    if (dialogue != null) return dialogue.future;
     return permissionAccordee;
   }
 
@@ -153,6 +158,37 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.enSuivi, isTrue);
+  });
+
+  test('retour au premier plan pendant la demande d\'autorisation : un seul abonnement GPS (G-04)', () async {
+    location.dialogueOuvert = Completer<bool>();
+    etatServeur = true;
+    controller.onUserChanged(_chauffeur());
+    await Future<void>.delayed(Duration.zero);
+
+    // Le dialogue d'autorisation met l'application en arrière-plan, puis la ramène : le cycle de vie revérifie, et le
+    // minuteur passe aussi pendant l'attente.
+    controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+    location.dialogueOuvert!.complete(true);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+
+    expect(controller.enSuivi, isTrue);
+    expect(location.suivisDemarres, 1);
+  });
+
+  test('déconnecté pendant la demande d\'autorisation : aucun suivi ne démarre après coup', () async {
+    location.dialogueOuvert = Completer<bool>();
+    etatServeur = true;
+    controller.onUserChanged(_chauffeur());
+    await Future<void>.delayed(Duration.zero);
+
+    controller.onUserChanged(null);
+    location.dialogueOuvert!.complete(true);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+
+    expect(controller.enSuivi, isFalse);
+    expect(location.suivisDemarres, 0);
   });
 
   test('déconnexion : arrête le suivi et se désabonne du cycle de vie', () async {

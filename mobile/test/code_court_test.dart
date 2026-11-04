@@ -118,6 +118,32 @@ void main() {
       expect(apresMotDePasse.verrouille, isFalse);
     });
 
+    test('erreurs de code court oubliées après une connexion par mot de passe (T-05)', () async {
+      await CodeCourtStore(secrets).definir(7, '4821');
+      await code.surUtilisateur(awa, reprise: true);
+      expect(await code.deverrouiller('0000'), isFalse);
+      expect(await code.deverrouiller('1111'), isFalse);
+      expect(code.essaisRestants, CodeCourtController.essaisMax - 2);
+
+      final apresMotDePasse = nouveau();
+      await apresMotDePasse.surUtilisateur(awa, reprise: false);
+
+      expect(apresMotDePasse.essaisRestants, CodeCourtController.essaisMax);
+      expect(await CodeCourtStore(secrets).echecs(), 0);
+      expect(await CodeCourtStore(secrets).verifier('4821'), isTrue, reason: 'le code lui-même est gardé');
+    });
+
+    test('une session reprise garde les erreurs déjà faites', () async {
+      await CodeCourtStore(secrets).definir(7, '4821');
+      await code.surUtilisateur(awa, reprise: true);
+      expect(await code.deverrouiller('0000'), isFalse);
+
+      final redemarrage = nouveau();
+      await redemarrage.surUtilisateur(awa, reprise: true);
+
+      expect(redemarrage.essaisRestants, CodeCourtController.essaisMax - 1);
+    });
+
     test('le bon code déverrouille', () async {
       await CodeCourtStore(secrets).definir(7, '4821');
       await code.surUtilisateur(awa, reprise: true);

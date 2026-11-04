@@ -167,6 +167,50 @@ void main() {
     });
   });
 
+  group('Billetterie externe (T-02)', () {
+    appTest('la compagnie vend par son logiciel : l\'accueil ne propose plus la vente', (tester, h) async {
+      h.stubLogin();
+      h.stubDeparts();
+      h.server.onJson('GET', '/configuration/moi/', {'vente_au_guichet': false});
+      await demarrer(tester, h);
+      await seConnecter(tester);
+
+      expect(find.byKey(const Key('vendre-ticket')), findsNothing);
+      expect(find.byKey(const Key('vente-fermee')), findsOneWidget);
+      expect(find.textContaining('propre logiciel'), findsOneWidget);
+    });
+
+    appTest('passée en externe après la connexion : l\'écran de vente se ferme à son ouverture', (tester, h) async {
+      h.stubLogin();
+      h.stubDeparts();
+      h.server.onJson('GET', '/configuration/moi/', {'vente_au_guichet': true});
+      await demarrer(tester, h);
+      await seConnecter(tester);
+      expect(find.byKey(const Key('vendre-ticket')), findsOneWidget);
+
+      h.server.onJson('GET', '/configuration/moi/', {'vente_au_guichet': false});
+      await ouvrirVente(tester);
+
+      expect(find.byKey(const Key('vente-fermee')), findsOneWidget);
+      expect(find.byKey(const Key('valider-vente')), findsNothing);
+      expect(h.server.requestsTo('POST', '/tickets/'), isEmpty);
+    });
+
+    appTest('hors ligne, la dernière configuration connue vaut : vente fermée gardée', (tester, h) async {
+      h.stubLogin();
+      h.stubDeparts();
+      h.server.onJson('GET', '/configuration/moi/', {'vente_au_guichet': false});
+      await demarrer(tester, h);
+      await seConnecter(tester);
+      h.server.offline = true;
+      h.connectivity.setOnline(false);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('vente-fermee')), findsOneWidget);
+      expect(find.byKey(const Key('vendre-ticket')), findsNothing);
+    });
+  });
+
   group('Vente de ticket', () {
     appTest('en ligne : envoyée tout de suite au serveur', (tester, h) async {
       h.stubLogin();
@@ -187,6 +231,35 @@ void main() {
       expect(find.text('Ticket vendu.'), findsOneWidget);
       // Le départ terminé (id 6) n'est pas proposé.
       expect(Outbox(h.services.store.outboxBox).all(), isEmpty);
+    });
+
+    appTest('ligne à tarif : prix affiché et non modifiable, la vente part sans prix (G-02)', (tester, h) async {
+      h.stubLogin();
+      h.stubDeparts(tarif: '6000.00');
+      h.server.onJson('POST', '/tickets/', {'id': 99}, 201);
+      await demarrer(tester, h);
+      await seConnecter(tester);
+      await ouvrirVente(tester);
+      await choisirDepart(tester);
+
+      TextField prix() => tester.widget<TextField>(
+            find.descendant(of: find.byKey(const Key('prix')), matching: find.byType(TextField)),
+          );
+      expect(prix().controller!.text, '6000');
+      expect(prix().readOnly, isTrue);
+      expect(find.text('Prix (tarif de la ligne)'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('passager-nom')), 'Kouadio Yao');
+      await tester.enterText(find.byKey(const Key('passager-telephone')), '0700000000');
+      await tester.tap(find.byKey(const Key('valider-vente')));
+      await tester.pumpAndSettle();
+
+      final vente = h.server.requestsTo('POST', '/tickets/').single;
+      expect(vente.body, contains('"depart":5'));
+      expect(vente.body, isNot(contains('"prix"')), reason: 'le serveur applique le tarif de la ligne');
+      expect(find.text('Ticket vendu.'), findsOneWidget);
+      // Le formulaire est prêt pour le voyageur suivant, au même tarif.
+      expect(prix().controller!.text, '6000');
     });
 
     appTest('refusée par le serveur : l\'erreur est affichée et rien n\'est conservé', (tester, h) async {

@@ -18,6 +18,9 @@ enum SyncStop {
   /// Session expirée : l'utilisateur doit se reconnecter.
   authRequired,
 
+  /// Mot de passe provisoire à remplacer : la file attend, rien n'est refusé.
+  motDePasseProvisoire,
+
   /// Le serveur a répondu par une erreur temporaire (5xx, 429...).
   serverError,
 }
@@ -64,6 +67,10 @@ class _AuthRequired extends _Attempt {
   const _AuthRequired();
 }
 
+class _MotDePasseProvisoire extends _Attempt {
+  const _MotDePasseProvisoire();
+}
+
 class _Transient extends _Attempt {
   const _Transient(this.message);
   final String message;
@@ -81,7 +88,9 @@ class _Rejected extends _Attempt {
 ///  - seules les actions de l'utilisateur connecté sont envoyées (jamais celles d'un autre) ;
 ///  - pas de réseau ou serveur en panne : on s'arrête, l'action reste en file ;
 ///  - refus métier (4xx) : l'action est marquée « refusée » (à revoir) et on continue ;
-///  - session expirée (401 après tentative de renouvellement) : on s'arrête.
+///  - session expirée (401 après tentative de renouvellement) : on s'arrête ;
+///  - mot de passe provisoire à remplacer : on n'envoie rien, la file attend (le serveur
+///    refuserait tout, et un refus marquerait « refusée » une vente déjà payée).
 class SyncService extends ChangeNotifier {
   SyncService({
     required this._outbox,
@@ -89,12 +98,14 @@ class SyncService extends ChangeNotifier {
     required this._currentUserId,
     this.maxAttempts = 5,
     this._probe,
+    this._motDePasseProvisoire,
   });
 
   final Outbox _outbox;
   final Map<String, ActionHandler> _handlers;
   final int? Function() _currentUserId;
   final Future<void> Function()? _probe;
+  final bool Function()? _motDePasseProvisoire;
 
   /// Tâche à lancer à la fin de chaque synchronisation réussie (ex. mettre à jour les
   /// places réservées). Sans effet sur la synchronisation elle-même : ses erreurs sont ignorées.
@@ -211,6 +222,7 @@ class SyncService extends ChangeNotifier {
   String _queuedReason() => switch (_lastStop) {
         SyncStop.offline => 'Pas de connexion.',
         SyncStop.authRequired => 'Session expirée : reconnectez-vous pour envoyer.',
+        SyncStop.motDePasseProvisoire => 'Choisissez votre mot de passe : l\'envoi reprendra ensuite.',
         SyncStop.serverError => 'Le serveur est momentanément indisponible.',
         SyncStop.none => 'En attente d\'envoi.',
       };
@@ -218,6 +230,11 @@ class SyncService extends ChangeNotifier {
   Future<SyncResult> _run() async {
     final userId = _currentUserId();
     if (userId == null) return const SyncResult();
+    if (_motDePasseProvisoire?.call() ?? false) {
+      _lastStop = SyncStop.motDePasseProvisoire;
+      refreshCounts();
+      return const SyncResult(stop: SyncStop.motDePasseProvisoire);
+    }
 
     if (_outbox.pendingFor(userId).isEmpty) {
       // Rien à envoyer : pas d'état « synchronisation en cours », mais les tâches
@@ -248,6 +265,8 @@ class SyncService extends ChangeNotifier {
             stop = SyncStop.offline;
           case _AuthRequired():
             stop = SyncStop.authRequired;
+          case _MotDePasseProvisoire():
+            stop = SyncStop.motDePasseProvisoire;
           case _Transient(:final message):
             final attempts = next.attempts + 1;
             if (attempts >= maxAttempts) {
@@ -297,6 +316,10 @@ class SyncService extends ChangeNotifier {
       return const _Offline();
     } on ApiException catch (e) {
       if (e.status == 401) return const _AuthRequired();
+      // Le serveur dit par un code, pas par son texte, que ce refus n'est pas définitif (voir `core.exceptions`).
+      if (e.status == 403 && e.data is Map && (e.data as Map)['code'] == 'mot_de_passe_provisoire') {
+        return const _MotDePasseProvisoire();
+      }
       if (e.status == 408 || e.status == 429 || e.status >= 500) return _Transient(e.message);
       return _Rejected(e.message);
     } on Object catch (e) {

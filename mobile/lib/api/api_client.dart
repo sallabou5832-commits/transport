@@ -114,8 +114,9 @@ class ApiClient {
   }
 
   /// Renouvelle le jeton d'accès. Retourne null si le refresh est absent ou refusé
-  /// (session expirée) ; laisse remonter [NetworkException] si le réseau manque,
-  /// pour ne pas déconnecter un utilisateur simplement hors ligne.
+  /// (session expirée) ; laisse remonter [NetworkException] si le réseau manque, et
+  /// [ApiException] si le serveur est en panne, pour ne pas déconnecter un utilisateur
+  /// simplement hors ligne ou mal servi.
   Future<String?> _refreshAccessToken() async {
     final pending = _refreshing;
     if (pending != null) return await pending as String?;
@@ -134,7 +135,13 @@ class ApiClient {
     if (refresh == null) return null;
 
     final response = await _send('POST', '/auth/refresh/', {'refresh': refresh}, null, null);
-    if (response.statusCode < 200 || response.statusCode >= 300) return null;
+    final status = response.statusCode;
+    if (status == 408 || status == 429 || status >= 500) {
+      // Une panne du serveur ne dit rien de la session : on la garde (un chauffeur en route n'est pas déconnecté),
+      // l'appel échoue comme une erreur passagère et sera repris.
+      throw ApiException(status, extractErrorMessage(_decodeBody(response)) ?? 'Erreur $status', _decodeBody(response));
+    }
+    if (status < 200 || status >= 300) return null;
 
     final data = _decodeBody(response);
     final access = data is Map ? data['access'] as String? : null;

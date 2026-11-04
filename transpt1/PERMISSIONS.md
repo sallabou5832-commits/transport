@@ -373,6 +373,9 @@ celui de son supérieur, **sauf si celui-ci l'a imposé** (`prefere_vocal_impose
 `/configuration/postes/` et `/configuration/agents/`) : l'agent reçoit alors un refus (400) et `vocal_impose` vaut vrai dans
 `/configuration/moi/`.
 
+**Vente au guichet** : `/configuration/moi/` donne aussi `vente_au_guichet`, faux quand la compagnie est en billetterie
+**externe** (le serveur refuse alors la vente au guichet, 403) ; le mobile ne propose plus la vente.
+
 **Accès aux comptes** (`/auth/…`, tout compte, l'opérateur de la plateforme compris) : chacun change son mot de passe
 (`POST /auth/mot-de-passe/`, l'actuel est exigé, essais limités comme la connexion) et ferme les sessions de ses autres
 appareils (`POST /auth/fermer-autres-sessions/`) ; personne ne le fait pour un autre ici. La durée d'une session se choisit à
@@ -413,7 +416,8 @@ bagagistes, ateliers, contrôleurs.
   prévenus ; l'action figure au journal d'audit avec le PDG comme acteur.
 - **Comptes du personnel** : un compte créé ou réinitialisé a un **mot de passe provisoire** ; tant qu'il ne l'a pas changé, le
   compte ne fait rien d'autre que `GET /auth/me/`, `GET /configuration/moi/` et `POST /auth/mot-de-passe/` (403 partout
-  ailleurs, carte en temps réel comprise). Identifiant unique sur la plateforme (le refus ne dit pas à qui il appartient) ;
+  ailleurs, carte en temps réel comprise ; le refus porte `"code": "mot_de_passe_provisoire"`, que le mobile lit pour garder
+  ses ventes hors ligne en file au lieu de les marquer refusées). Identifiant unique sur la plateforme (le refus ne dit pas à qui il appartient) ;
   matricule unique dans la compagnie. Un changement de poste ferme les sessions de l'agent ; il est refusé pour un chef qui
   dirige une gare ou un agent d'une équipe de gare (à défaire d'abord). Personne ne change son propre poste ni ne réinitialise
   son propre mot de passe ici. Le PDG est prévenu de ce que fait le DRH, et inversement.

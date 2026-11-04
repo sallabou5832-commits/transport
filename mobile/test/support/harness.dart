@@ -90,12 +90,13 @@ class Harness {
     server.on('DELETE', '/tickets/reserver-hors-ligne/', (_) => http.Response('', 204));
   }
 
-  /// Un départ vendable et sa ligne (pour l'écran de vente), avec 2 places réservées.
-  void stubDeparts({int placesReservees = 2}) {
+  /// Un départ vendable et sa ligne (pour l'écran de vente), avec 2 places réservées. [tarif] : celui de la ligne, tel
+  /// que le serveur le donne (« 6000.00 ») ; sans lui, la ligne n'a pas de tarif et le prix se saisit.
+  void stubDeparts({int placesReservees = 2, String? tarif}) {
     stubReservation(places: placesReservees);
     final demain = DateTime.now().add(const Duration(days: 1)).toUtc().toIso8601String();
     server.onJson('GET', '/departs/', [
-      {'id': 5, 'ligne': 3, 'statut': 'planifie', 'date_heure': demain, 'places_restantes': 12},
+      {'id': 5, 'ligne': 3, 'statut': 'planifie', 'date_heure': demain, 'places_restantes': 12, 'tarif': tarif},
       {'id': 6, 'ligne': 3, 'statut': 'termine', 'date_heure': demain, 'places_restantes': 0},
     ]);
     server.onJson('GET', '/lignes/', [

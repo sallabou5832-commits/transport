@@ -299,6 +299,10 @@ class TestMotDePasseProvisoire:
         assert agent.get("/api/configuration/moi/").status_code == 200
         refus = agent.get("/api/departs/")
         assert refus.status_code == 403 and "provisoire" in str(refus.data["detail"])
+        # Le code dit au mobile d'attendre (ventes hors ligne gardées en file) au lieu de lire un refus définitif.
+        assert refus.data["code"] == "mot_de_passe_provisoire"
+        vente = agent.post("/api/tickets/", {}, format="json")
+        assert vente.status_code == 403 and vente.data["code"] == "mot_de_passe_provisoire"
         assert agent.post("/api/auth/fermer-autres-sessions/", {"refresh": session.data["refresh"]}).status_code == 403
 
         change = agent.post(

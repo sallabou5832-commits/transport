@@ -162,9 +162,8 @@ flutter test tool/e2e_smoke_test.dart
 # autre serveur : --dart-define=API_BASE_URL=http://192.168.1.20:8000/api
 ```
 
-Dernier relevé (2 novembre 2026) : `flutter analyze` sans problème, `flutter test` **209 réussis**, essai de bout en bout
-**12/12** contre un serveur et une base jetables. Les lignes de démonstration n'ont pas de tarif : ces essais ne montrent
-donc pas le défaut du tarif (voir « Limites connues »).
+Dernier relevé (4 novembre 2026) : `flutter analyze` sans problème, `flutter test` **270 réussis**. L'essai de bout en
+bout (**12/12** le 2 novembre, contre un serveur et une base jetables) n'a pas été rejoué depuis.
 
 ## Architecture
 
@@ -191,7 +190,14 @@ lib/
   est respecté.
 - **Résultat d'un envoi** : accepté → retirée de la file ; pas de réseau ou serveur en panne → reste en
   file, on réessaiera ; **refus du serveur** → marquée « refusée » et signalée à l'utilisateur, qui la
-  revoit depuis le bandeau (jamais renvoyée en boucle).
+  revoit depuis le bandeau (jamais renvoyée en boucle). Exception : tant que le **mot de passe est provisoire**, rien ne
+  part, et le refus du serveur pour ce motif (reconnu à son code `mot_de_passe_provisoire`, pas à son texte) laisse
+  l'action en file ; tout part une fois le mot de passe remplacé.
+- **Tarif** : un départ garde le tarif de sa ligne (lu avec les départs, gardé hors ligne). Le prix s'affiche alors sans
+  pouvoir être modifié, et la vente part **sans prix** : le serveur applique le tarif, comme sur le site.
+- **Billetterie externe** : quand la compagnie vend par son propre logiciel (`vente_au_guichet` faux dans
+  `/configuration/moi/`, relu à chaque ouverture de l'écran de vente et gardé hors ligne), le guichet ne propose plus la
+  vente.
 - **Pas de doublon** : chaque action porte un identifiant unique, envoyé dans l'en-tête `Idempotency-Key`.
   Si le serveur a enregistré une vente mais que la réponse s'est perdue, le renvoi rend le ticket
   existant au lieu d'en créer un second (voir `PERMISSIONS.md`, §2).
@@ -222,7 +228,8 @@ La file d'attente et le cache (noms et téléphones des voyageurs) sont chiffré
 générée au premier lancement, est gardée dans le coffre du système (Keystore Android / Keychain iOS), jamais
 à côté des données. Si la clé est perdue (réinstallation, sauvegarde restaurée sur un autre téléphone),
 les données deviennent illisibles : elles sont effacées et l'application **prévient l'utilisateur** que des
-ventes en attente ont pu être perdues.
+ventes en attente ont pu être perdues. Pour cette raison, rien ne part dans la sauvegarde du téléphone ni vers un nouvel
+appareil (`allowBackup="false"` et `res/xml/data_extraction_rules.xml`).
 
 ### Accès au compte : rester connecté, code court, mot de passe
 
@@ -329,12 +336,9 @@ lui-même est déclaré par le paquet `geolocator_android`, rien à ajouter côt
 
 ## Limites connues (à traiter avant la mise en production)
 
-- **Le mobile ignore le tarif de la ligne.** Le guichetier tape un prix ; dès qu'une ligne a un tarif, le serveur
-  refuse tout autre prix (« Le tarif de cette ligne est de 6000 FCFA : seul un chef peut vendre à un autre prix »,
-  reproduit le 2 novembre 2026). Une vente faite **hors ligne** au mauvais prix est donc refusée à la synchronisation,
-  voyageur déjà payé (anomalie G-02 de `../RAPPORT_ANOMALIES_2026-10-31.md`).
-- **Une erreur du serveur déconnecte l'utilisateur** : toute réponse en erreur au renouvellement du jeton, erreur
-  serveur (5xx) comprise, efface la session (`api_client.dart`, G-01) ; seule une coupure réseau est épargnée.
+- **Une vente refusée ne se renvoie pas** : elle ne peut qu'être supprimée depuis le bandeau, après lecture du motif.
+- **Tarif changé pendant le hors ligne** : une vente en file part sans prix ; si le tarif de la ligne a changé entre-temps,
+  le serveur enregistre le nouveau.
 - **Écrans absents** pour le contrôleur, le bagagiste et le mécanicien ; le chauffeur ne peut ni déclarer un incident, ni
   faire un relais ou une checklist de reprise, ni voir ses alertes depuis le mobile (site web uniquement).
 - **L'extincteur manque à la checklist avant-départ** (`checklist_depart_screen.dart`, comme sur le site), alors que le
@@ -362,9 +366,9 @@ lui-même est déclaré par le paquet `geolocator_android`, rien à ajouter côt
   trajet côté serveur plutôt que sur un bouton du mobile : il fonctionne dès aujourd'hui, quel que soit
   l'endroit d'où le trajet a été démarré.
 - **Commande vocale** : première couche, en français uniquement, sur deux actions (voir « Commande
-  vocale »). La compréhension du texte dicté est volontairement simple (mots-clés, **pas de négation**) :
-  « freins pas bons » est compris **OK** sur un item de sécurité, « ne confirme pas » confirme la vente (G-03). À
-  corriger avant tout usage de la checklist vocale sur le terrain. Non essayée sur un vrai téléphone dans cet
+  vocale »). La compréhension du texte dicté reste simple (mots-clés), mais **lit la négation** depuis le 4 novembre
+  (G-03) : « pas bon » ou « c'est pas ok » donnent un **défaut** ; « pas de défaut » seul ne vaut pas « OK » (l'agent
+  reprend au clavier) ; « je valide pas » est un refus, jamais une confirmation. Non essayée sur un vrai téléphone dans cet
   environnement, pour la même raison que le reste de l'application (voir plus haut, « Android et iOS »).
 - **Suivi GPS** : le service de premier plan Android (voir « Suivi GPS ») n'a, comme le reste de
   l'application, jamais tourné sur un appareil réel ni un émulateur dans cet environnement — en particulier,

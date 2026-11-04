@@ -27,6 +27,60 @@ String normalizeSpoken(String text) {
 bool _contientUnDe(String normalise, List<String> motsCles) =>
     motsCles.any((mot) => RegExp(r'\b' + RegExp.escape(mot) + r'\b').hasMatch(normalise));
 
+/// Les mots d'une phrase normalisée ; l'apostrophe sépare (« n'est » donne « n », « est »).
+List<String> _mots(String normalise) =>
+    RegExp(r'[a-z0-9]+').allMatches(normalise).map((mot) => mot.group(0)!).toList();
+
+/// Où apparaît chacun des mots-clés, en positions de mots [début, fin) ; un mot-clé peut
+/// tenir en plusieurs mots (« à changer », « c'est bon »).
+List<(int, int)> _occurrences(List<String> mots, List<String> motsCles) {
+  final trouvees = <(int, int)>[];
+  for (final cle in motsCles) {
+    final morceaux = cle.split(' ');
+    for (var debut = 0; debut + morceaux.length <= mots.length; debut++) {
+      var egal = true;
+      for (var i = 0; i < morceaux.length && egal; i++) {
+        egal = mots[debut + i] == morceaux[i];
+      }
+      if (egal) trouvees.add((debut, debut + morceaux.length));
+    }
+  }
+  return trouvees;
+}
+
+/// Ce qui nie le mot qui suit (« pas bon », « aucun problème », « sans défaut ») ; à l'oral
+/// le « ne » tombe souvent, « pas » suffit.
+const _negationsAvant = {'pas', 'plus', 'jamais', 'aucun', 'aucune', 'sans', 'ni', 'non', 'ne', 'n'};
+
+/// Ce qui nie le verbe qui précède, à l'oral (« je valide pas », « confirme jamais »).
+const _negationsApres = {'pas', 'plus', 'jamais'};
+
+/// Vrai si une négation précède ce mot-clé de trois mots au plus (« pas très bon »), sans
+/// remonter au-delà du mot-clé précédent : dans « pas de problème, ok », le « pas » nie
+/// « problème », pas « ok ».
+bool _nieAvant(List<String> mots, (int, int) occurrence, List<(int, int)> toutes) {
+  var borne = occurrence.$1 - 3;
+  for (final autre in toutes) {
+    if (autre.$2 <= occurrence.$1 && autre.$2 > borne) borne = autre.$2;
+  }
+  for (var i = occurrence.$1 - 1; i >= 0 && i >= borne; i--) {
+    if (_negationsAvant.contains(mots[i])) return true;
+  }
+  return false;
+}
+
+/// Vrai si une négation suit ce verbe de deux mots au plus, sans dépasser le mot-clé suivant.
+bool _nieApres(List<String> mots, (int, int) occurrence, List<(int, int)> toutes) {
+  var borne = occurrence.$2 + 2;
+  for (final autre in toutes) {
+    if (autre.$1 >= occurrence.$2 && autre.$1 < borne) borne = autre.$1;
+  }
+  for (var i = occurrence.$2; i < mots.length && i < borne; i++) {
+    if (_negationsApres.contains(mots[i])) return true;
+  }
+  return false;
+}
+
 /// Met une majuscule à chaque mot (un nom dicté arrive tout en minuscules, contrairement
 /// à la saisie au clavier qui capitalise déjà au fil de la frappe).
 String capitalizeWords(String text) => text
@@ -64,20 +118,30 @@ String? parseModePaiement(String text) {
   return null;
 }
 
+const _motsDefaut = [
+  'defaut', 'defauts', 'probleme', 'problemes', 'panne', 'pannes', 'mauvais', 'mauvaise', 'mauvaises',
+  'use', 'uses', 'usee', 'usees', 'casse', 'casses', 'cassee', 'cassees', 'a changer', 'hs',
+];
+const _motsAccord = [
+  'ok', 'bon', 'bons', 'bonne', 'bonnes', 'correct', 'corrects', 'correcte', 'correctes',
+  'oui', 'ras', 'rien a signaler', 'nickel', 'impeccable',
+];
+
 /// État d'un item de checklist compris dans une phrase dictée (`'ok'` ou `'defaut'`,
 /// les mêmes valeurs que `EtatChecklist` côté serveur), ou `null` si incompris.
 ///
-/// Limite connue : la négation n'est pas comprise (« pas de défaut » serait pris pour
-/// un défaut). Sans ambiguïté à traiter en premier lieu, la checklist ne demande qu'un
-/// mot ; en cas de doute mieux vaut ne rien renvoyer et laisser la reprise manuelle.
+/// La sécurité passe avant la commodité : un défaut dit, ou un accord nié (« pas bon »,
+/// « c'est pas ok »), donne un défaut. Un défaut nié seul (« pas de défaut », « aucun
+/// problème ») ne vaut pas « OK » : dans le doute, rien n'est renvoyé et l'agent reprend
+/// au clavier.
 String? parseEtatChecklist(String text) {
-  final normalise = normalizeSpoken(text);
-  if (_contientUnDe(normalise, const ['defaut', 'probleme', 'panne', 'mauvais', 'usee', 'use', 'casse', 'a changer', 'hs'])) {
-    return 'defaut';
-  }
-  if (_contientUnDe(normalise, const ['ok', 'bon', 'correct', 'oui', 'ras', 'rien a signaler', 'nickel', 'impeccable'])) {
-    return 'ok';
-  }
+  final mots = _mots(normalizeSpoken(text));
+  final defauts = _occurrences(mots, _motsDefaut);
+  final accords = _occurrences(mots, _motsAccord);
+  final toutes = [...defauts, ...accords];
+  bool nie((int, int) occurrence) => _nieAvant(mots, occurrence, toutes);
+  if (defauts.any((occurrence) => !nie(occurrence)) || accords.any(nie)) return 'defaut';
+  if (accords.isNotEmpty) return 'ok';
   return null;
 }
 
@@ -95,14 +159,21 @@ enum VoiceIntent {
   inconnu,
 }
 
+/// Une confirmation niée (« je valide pas », « ne confirme pas ») n'est jamais une
+/// confirmation : c'est un refus. Confirmer et refuser dans la même phrase : inconnu.
 VoiceIntent parseConfirmationIntent(String text) {
-  final normalise = normalizeSpoken(text);
-  if (_contientUnDe(normalise, const ['confirme', 'confirmer', 'valide', 'valider', 'envoie', 'envoyer', 'c est bon'])) {
-    return VoiceIntent.confirmer;
-  }
-  if (_contientUnDe(normalise, const ['modifie', 'modifier', 'recommence', 'recommencer', 'annule', 'annuler', 'corrige', 'corriger'])) {
-    return VoiceIntent.modifier;
-  }
+  final mots = _mots(normalizeSpoken(text));
+  final confirmations = _occurrences(mots, const ['confirme', 'confirmer', 'valide', 'valider', 'envoie', 'envoyer', 'c est bon']);
+  final modifications = _occurrences(
+    mots,
+    const ['modifie', 'modifier', 'recommence', 'recommencer', 'annule', 'annuler', 'corrige', 'corriger'],
+  );
+  final toutes = [...confirmations, ...modifications];
+  bool nie((int, int) occurrence) => _nieAvant(mots, occurrence, toutes) || _nieApres(mots, occurrence, toutes);
+  final confirme = confirmations.any((occurrence) => !nie(occurrence));
+  final refuse = confirmations.any(nie) || modifications.any((occurrence) => !nie(occurrence));
+  if (confirme && !refuse) return VoiceIntent.confirmer;
+  if (refuse && !confirme) return VoiceIntent.modifier;
   return VoiceIntent.inconnu;
 }
 

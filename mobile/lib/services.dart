@@ -65,6 +65,7 @@ class AppServices {
       currentUserId: () => auth.user?.id,
       // Vérifie que le serveur répond (sert à savoir si une vente hors ligne est possible).
       probe: () => api.get('/auth/me/'),
+      motDePasseProvisoire: () => auth.user?.doitChangerMotDePasse ?? false,
     );
     final quota = QuotaService(
       api: api,

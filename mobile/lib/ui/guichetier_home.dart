@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../auth/app_user.dart';
+import '../data/ma_configuration.dart';
 import 'user_header.dart';
 import 'vente_ticket_screen.dart';
 
-/// Accueil du guichetier : accès direct à la vente d'un ticket.
+/// Accueil du guichetier : accès direct à la vente d'un ticket, sauf si la compagnie vend par son propre logiciel.
 class GuichetierHome extends StatelessWidget {
   const GuichetierHome({super.key, required this.user});
 
@@ -17,24 +19,28 @@ class GuichetierHome extends StatelessWidget {
       children: [
         UserHeader(user: user),
         const SizedBox(height: 24),
-        FilledButton.icon(
-          key: const Key('vendre-ticket'),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const VenteTicketScreen()),
+        if (!context.watch<MaConfiguration>().venteAuGuichet)
+          const VenteAuGuichetFermee()
+        else ...[
+          FilledButton.icon(
+            key: const Key('vendre-ticket'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const VenteTicketScreen()),
+            ),
+            icon: const Icon(Icons.confirmation_number_outlined, size: 32),
+            label: const Text('Vendre un ticket'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(88),
+              textStyle: Theme.of(context).textTheme.titleLarge,
+            ),
           ),
-          icon: const Icon(Icons.confirmation_number_outlined, size: 32),
-          label: const Text('Vendre un ticket'),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(88),
-            textStyle: Theme.of(context).textTheme.titleLarge,
+          const SizedBox(height: 16),
+          Text(
+            'Sans réseau, la vente est enregistrée sur le téléphone et envoyée '
+            'automatiquement dès que la connexion revient.',
+            style: Theme.of(context).textTheme.bodyMedium,
           ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Sans réseau, la vente est enregistrée sur le téléphone et envoyée '
-          'automatiquement dès que la connexion revient.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
+        ],
       ],
     );
   }

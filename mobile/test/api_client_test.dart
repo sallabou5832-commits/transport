@@ -84,6 +84,22 @@ void main() {
     expect(expiredCalls, 1);
   });
 
+  test('serveur en panne pendant le renouvellement : ne déconnecte PAS l\'utilisateur (G-01)', () async {
+    for (final status in [500, 502, 503, 429]) {
+      server.onJson('GET', '/auth/me/', {'detail': 'expiré'}, 401);
+      server.onJson('POST', '/auth/refresh/', {'detail': 'Indisponible'}, status);
+
+      await expectLater(
+        api.get('/auth/me/'),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', status)),
+      );
+
+      expect(await tokens.readAccess(), 'old-access');
+      expect(await tokens.readRefresh(), 'my-refresh');
+      expect(expiredCalls, 0);
+    }
+  });
+
   test('sans jeton de renouvellement : session expirée', () async {
     tokens.refresh = null;
     server.onJson('GET', '/auth/me/', {'detail': 'expiré'}, 401);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { apiFetch } from '../api/client.js'
 import useChargement from '../api/useChargement.js'
 import { formatDateHeure, nouvellesAlertesCritiques } from '../lib/format.js'
@@ -28,7 +29,12 @@ function sonner() {
  * par le QHSE, panne, stock bas, pénurie…). Rafraîchie toute seule chaque minute ; chacun les marque lues pour lui.
  */
 export default function AlertesCloche() {
-  const [ouvert, setOuvert] = useState(false)
+  // Le panneau se ferme comme un menu : la cloche de nouveau, Échap, un clic ailleurs, ou une autre page (il ne reste ouvert
+  // que sur la page où il a été ouvert).
+  const { pathname } = useLocation()
+  const [ouvertSur, setOuvertSur] = useState(null)
+  const ouvert = ouvertSur === pathname
+  const racine = useRef(null)
   const { data, recharger } = useChargement(() => apiFetch('/alertes/?limit=20'), { intervalleMs: 60000 })
   // Les préférences de l'agent (« Mes paramètres ») : être prévenu d'une alerte critique par un son, ou par une notification
   // du navigateur quand l'onglet est en arrière-plan. Rien de réglé : la cloche seule, comme avant.
@@ -46,6 +52,19 @@ export default function AlertesCloche() {
     }
   }, [data, preferences])
 
+  useEffect(() => {
+    if (!ouvert) return undefined
+    const fermer = () => setOuvertSur(null)
+    const surTouche = (evenement) => evenement.key === 'Escape' && fermer()
+    const surClic = (evenement) => !racine.current?.contains(evenement.target) && fermer()
+    document.addEventListener('keydown', surTouche)
+    document.addEventListener('pointerdown', surClic)
+    return () => {
+      document.removeEventListener('keydown', surTouche)
+      document.removeEventListener('pointerdown', surClic)
+    }
+  }, [ouvert])
+
   const nonLues = data?.non_lues ?? 0
 
   async function lire(alerte) {
@@ -60,13 +79,13 @@ export default function AlertesCloche() {
   }
 
   return (
-    <div className="cloche">
+    <div className="cloche" ref={racine}>
       <button
         type="button"
         className="cloche-bouton"
         aria-expanded={ouvert}
         aria-label={`Alertes, ${nonLues} non lue(s)`}
-        onClick={() => setOuvert(!ouvert)}
+        onClick={() => setOuvertSur(ouvert ? null : pathname)}
       >
         Alertes
         {nonLues > 0 && <span className="cloche-compteur">{nonLues}</span>}
